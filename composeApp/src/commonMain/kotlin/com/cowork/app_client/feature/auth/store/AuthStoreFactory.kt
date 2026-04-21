@@ -23,7 +23,7 @@ class AuthStoreFactory(
             initialState = State(),
             bootstrapper = SimpleBootstrapper(Unit),
             executorFactory = { Executor() },
-            reducer = Reducer,
+            reducer = AuthReducer,
         ) {}
 
     private inner class Executor : CoroutineExecutor<Intent, Unit, State, Msg, Label>() {
@@ -84,7 +84,7 @@ class AuthStoreFactory(
         else -> "로그인 토큰 교환에 실패했습니다. 서버 /auth/exchange 구현과 실행 상태를 확인해주세요."
     }
 
-    private object Reducer : Reducer<State, Msg> {
+    private object AuthReducer : com.arkivanov.mvikotlin.core.store.Reducer<State, Msg> {
         override fun State.reduce(msg: Msg): State = when (msg) {
             is Msg.SetLoading -> copy(isLoading = msg.isLoading, error = null)
             is Msg.SetError -> copy(isLoading = false, error = msg.error)

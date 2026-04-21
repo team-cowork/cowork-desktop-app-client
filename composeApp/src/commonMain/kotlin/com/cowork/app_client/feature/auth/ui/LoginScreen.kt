@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -39,12 +40,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import coworkappclient.composeapp.generated.resources.Res
 import coworkappclient.composeapp.generated.resources.d_black
 import com.cowork.app_client.feature.auth.component.AuthComponent
 import org.jetbrains.compose.resources.painterResource
+
+private fun adaptiveDp(start: Dp, end: Dp, progress: Float): Dp {
+    return start + (end - start) * progress
+}
 
 @Composable
 fun LoginScreen(component: AuthComponent) {
@@ -55,21 +61,23 @@ fun LoginScreen(component: AuthComponent) {
             .fillMaxSize()
             .background(Color(0xFFB91624)),
     ) {
-        val compact = maxWidth < 920.dp
-        val cardModifier = if (compact) {
-            Modifier
-                .align(Alignment.Center)
-                .padding(horizontal = 24.dp)
-                .fillMaxWidth()
-                .widthIn(max = 424.dp)
-        } else {
-            Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 80.dp)
-                .widthIn(min = 392.dp, max = 432.dp)
-        }
+        val compact = maxWidth < 1120.dp
+        val spaciousProgress = ((maxWidth.value - 1180f) / 420f).coerceIn(0f, 1f)
+        val stageMaxWidth = adaptiveDp(1180.dp, 1320.dp, spaciousProgress)
+        val stageHorizontalPadding = adaptiveDp(40.dp, 56.dp, spaciousProgress)
+        val cardMinWidth = adaptiveDp(392.dp, 448.dp, spaciousProgress)
+        val cardMaxWidth = adaptiveDp(432.dp, 488.dp, spaciousProgress)
+        val copyEndPadding = adaptiveDp(536.dp, 626.dp, spaciousProgress)
+        val paneHorizontalPadding = adaptiveDp(32.dp, 40.dp, spaciousProgress)
+        val paneVerticalPadding = adaptiveDp(36.dp, 42.dp, spaciousProgress)
+        val splashArtScale = 1f + 0.14f * spaciousProgress
 
-        SplashBackground(modifier = Modifier.fillMaxSize())
+        SplashBackground(
+            stageMaxWidth = stageMaxWidth,
+            stageHorizontalPadding = stageHorizontalPadding,
+            artScale = splashArtScale,
+            modifier = Modifier.fillMaxSize(),
+        )
 
         if (compact) {
             LoginCompactBrand(
@@ -77,26 +85,58 @@ fun LoginScreen(component: AuthComponent) {
                     .align(Alignment.TopCenter)
                     .padding(top = 56.dp, start = 24.dp, end = 24.dp),
             )
-        } else {
-            LoginSplashCopy(
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .padding(start = 88.dp, end = 560.dp),
-            )
-        }
 
-        Surface(
-            modifier = cardModifier,
-            color = Color(0xFF313338),
-            shape = MaterialTheme.shapes.medium,
-            tonalElevation = 2.dp,
-        ) {
-            LoginActionPane(
-                isLoading = state.isLoading,
-                error = state.error,
-                onLoginClick = component::onLoginClick,
-                modifier = Modifier.padding(horizontal = 32.dp, vertical = 36.dp),
-            )
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 24.dp)
+                    .fillMaxWidth()
+                    .widthIn(max = 424.dp),
+                color = Color(0xFF313338),
+                shape = MaterialTheme.shapes.medium,
+                tonalElevation = 2.dp,
+            ) {
+                LoginActionPane(
+                    isLoading = state.isLoading,
+                    error = state.error,
+                    onLoginClick = component::onLoginClick,
+                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 36.dp),
+                )
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxHeight()
+                    .widthIn(max = stageMaxWidth)
+                    .fillMaxWidth()
+                    .padding(horizontal = stageHorizontalPadding),
+            ) {
+                LoginSplashCopy(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .padding(end = copyEndPadding),
+                )
+
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .widthIn(min = cardMinWidth, max = cardMaxWidth),
+                    color = Color(0xFF313338),
+                    shape = MaterialTheme.shapes.medium,
+                    tonalElevation = 2.dp,
+                ) {
+                    LoginActionPane(
+                        isLoading = state.isLoading,
+                        error = state.error,
+                        onLoginClick = component::onLoginClick,
+                        modifier = Modifier.padding(
+                            horizontal = paneHorizontalPadding,
+                            vertical = paneVerticalPadding,
+                        ),
+                    )
+                }
+            }
         }
     }
 }
@@ -115,7 +155,7 @@ private fun LoginCompactBrand(modifier: Modifier = Modifier) {
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "학교 프로젝트가 흩어지지 않도록.",
+            text = "사용자의 경험을 혁신하는 장소.",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             color = Color.White.copy(alpha = 0.86f),
@@ -124,7 +164,12 @@ private fun LoginCompactBrand(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun SplashBackground(modifier: Modifier = Modifier) {
+private fun SplashBackground(
+    stageMaxWidth: Dp,
+    stageHorizontalPadding: Dp,
+    artScale: Float,
+    modifier: Modifier = Modifier,
+) {
     Canvas(modifier = modifier) {
         drawRect(Color(0xFFF04452))
 
@@ -141,41 +186,45 @@ private fun SplashBackground(modifier: Modifier = Modifier) {
             x += step
         }
 
+        val stagePadding = stageHorizontalPadding.toPx()
+        val availableStageWidth = (size.width - stagePadding * 2f).coerceAtLeast(0f)
+        val stageWidth = minOf(stageMaxWidth.toPx(), availableStageWidth)
+        val stageStart = (size.width - stageWidth) / 2f
         val artCenterY = size.height * 0.5f
-        val artX = 96.dp.toPx()
-        val panelWidth = 430.dp.toPx()
-        val panelHeight = 430.dp.toPx()
+        val artX = stageStart + stagePadding
+        val panelWidth = 430.dp.toPx() * artScale
+        val panelHeight = 430.dp.toPx() * artScale
         val panelTop = artCenterY - panelHeight * 0.48f
 
         drawRoundRect(
             color = Color(0xFF8F1320).copy(alpha = 0.42f),
             topLeft = Offset(artX, panelTop),
             size = Size(panelWidth, panelHeight),
-            cornerRadius = CornerRadius(28.dp.toPx(), 28.dp.toPx()),
+            cornerRadius = CornerRadius(28.dp.toPx() * artScale, 28.dp.toPx() * artScale),
         )
         drawRoundRect(
             color = Color.White.copy(alpha = 0.16f),
-            topLeft = Offset(artX + 64.dp.toPx(), panelTop + 56.dp.toPx()),
-            size = Size(270.dp.toPx(), 76.dp.toPx()),
-            cornerRadius = CornerRadius(14.dp.toPx(), 14.dp.toPx()),
+            topLeft = Offset(artX + 64.dp.toPx() * artScale, panelTop + 56.dp.toPx() * artScale),
+            size = Size(270.dp.toPx() * artScale, 76.dp.toPx() * artScale),
+            cornerRadius = CornerRadius(14.dp.toPx() * artScale, 14.dp.toPx() * artScale),
             style = Stroke(width = 2.dp.toPx()),
         )
         drawRoundRect(
             color = Color.White.copy(alpha = 0.18f),
-            topLeft = Offset(artX + 118.dp.toPx(), panelTop + 200.dp.toPx()),
-            size = Size(420.dp.toPx(), 86.dp.toPx()),
-            cornerRadius = CornerRadius(18.dp.toPx(), 18.dp.toPx()),
+            topLeft = Offset(artX + 118.dp.toPx() * artScale, panelTop + 200.dp.toPx() * artScale),
+            size = Size(420.dp.toPx() * artScale, 86.dp.toPx() * artScale),
+            cornerRadius = CornerRadius(18.dp.toPx() * artScale, 18.dp.toPx() * artScale),
         )
         drawRoundRect(
             color = Color(0xFF202225).copy(alpha = 0.45f),
-            topLeft = Offset(artX + 280.dp.toPx(), panelTop + 318.dp.toPx()),
-            size = Size(280.dp.toPx(), 120.dp.toPx()),
-            cornerRadius = CornerRadius(22.dp.toPx(), 22.dp.toPx()),
+            topLeft = Offset(artX + 280.dp.toPx() * artScale, panelTop + 318.dp.toPx() * artScale),
+            size = Size(280.dp.toPx() * artScale, 120.dp.toPx() * artScale),
+            cornerRadius = CornerRadius(22.dp.toPx() * artScale, 22.dp.toPx() * artScale),
         )
         drawRoundRect(
             color = Color.White.copy(alpha = 0.14f),
-            topLeft = Offset(size.width * 0.58f, -size.height * 0.08f),
-            size = Size(size.width * 0.34f, size.height * 1.18f),
+            topLeft = Offset(stageStart + stageWidth * 0.58f, -size.height * 0.08f),
+            size = Size(stageWidth * 0.34f, size.height * 1.18f),
             cornerRadius = CornerRadius(32.dp.toPx(), 32.dp.toPx()),
         )
     }
@@ -197,7 +246,7 @@ private fun LoginSplashCopy(modifier: Modifier = Modifier) {
         Spacer(modifier = Modifier.height(20.dp))
 
         Text(
-            text = "학교 프로젝트가\n흩어지지 않도록.",
+            text = "사용자의 경험을\n혁신하는 장소.",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             color = Color.White,
@@ -206,7 +255,7 @@ private fun LoginSplashCopy(modifier: Modifier = Modifier) {
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "광주소프트웨어마이스터고등학교 팀을 위한 채팅, 이슈, 채널 기반 협업 공간입니다.",
+            text = "아이디어가 프로덕트가 되는 순간까지, 팀의 모든 흐름을 하나로.",
             style = MaterialTheme.typography.bodyLarge,
             color = Color.White.copy(alpha = 0.82f),
             modifier = Modifier.widthIn(max = 460.dp),
