@@ -119,10 +119,37 @@ compose.desktop {
     application {
         mainClass = "com.cowork.app_client.MainKt"
 
+        jvmArgs("-Xdock:icon=${project.file("icons/AppIcon.icns").absolutePath}")
+
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "cowork"
             packageVersion = "1.0.0"
+
+            macOS {
+                iconFile.set(project.file("icons/AppIcon.icns"))
+                bundleID = "com.cowork.appclient"
+                signing {
+                    sign.set(true)
+                    identity.set("Developer ID Application: Gwangju Software Meister High School (UB2797YAAH)")
+                }
+
+                infoPlist {
+                    extraKeysRawXml = """
+                        <key>CFBundleURLTypes</key>
+                        <array>
+                            <dict>
+                                <key>CFBundleURLName</key>
+                                <string>cowork OAuth Callback</string>
+                                <key>CFBundleURLSchemes</key>
+                                <array>
+                                    <string>cowork</string>
+                                </array>
+                            </dict>
+                        </array>
+                    """.trimIndent()
+                }
+            }
         }
 
         buildTypes.release.proguard {
