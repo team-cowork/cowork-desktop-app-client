@@ -15,13 +15,66 @@ import java.util.Base64
 
 private const val CALLBACK_PORT = 19420
 private const val TIMEOUT_MS = 5L * 60 * 1000
+private const val REDIRECT_URI_PROPERTY = "cowork.oauth.redirectUri"
+private const val REDIRECT_URI_ENV = "COWORK_OAUTH_REDIRECT_URI"
 
 class DesktopOAuthLauncher : OAuthLauncher {
     override suspend fun launch(signInUrl: String): OAuthAuthorizationCode? {
-        val redirectUri = "http://localhost:$CALLBACK_PORT/callback"
+        val redirectUri = resolveRedirectUri()
         val state = generateCodeVerifier()
         val codeVerifier = generateCodeVerifier()
         val codeChallenge = generateCodeChallenge(codeVerifier)
+        val fullSignInUrl = buildSignInUrl(
+            signInUrl = signInUrl,
+            redirectUri = redirectUri,
+            state = state,
+            codeChallenge = codeChallenge,
+        )
+
+        return if (redirectUri.startsWith("${AppConfig.DESKTOP_OAUTH_SCHEME}://")) {
+            launchWithCustomScheme(
+                fullSignInUrl = fullSignInUrl,
+                state = state,
+                codeVerifier = codeVerifier,
+                redirectUri = redirectUri,
+            )
+        } else {
+            launchWithLocalCallbackServer(
+                fullSignInUrl = fullSignInUrl,
+                state = state,
+                codeVerifier = codeVerifier,
+                redirectUri = redirectUri,
+            )
+        }
+    }
+
+    private suspend fun launchWithCustomScheme(
+        fullSignInUrl: String,
+        state: String,
+        codeVerifier: String,
+        redirectUri: String,
+    ): OAuthAuthorizationCode {
+        val callback = DesktopOAuthCallbackRegistry.prepareForCallback()
+
+        openBrowser(fullSignInUrl)
+
+        val callbackUri = withTimeoutOrNull(TIMEOUT_MS) { callback.await() }
+            ?: throw OAuthLaunchException("OAuth callback 대기 시간이 초과되었습니다.")
+
+        return parseAuthorizationCode(
+            rawQuery = callbackUri.rawQuery,
+            expectedState = state,
+            codeVerifier = codeVerifier,
+            redirectUri = redirectUri,
+        )
+    }
+
+    private suspend fun launchWithLocalCallbackServer(
+        fullSignInUrl: String,
+        state: String,
+        codeVerifier: String,
+        redirectUri: String,
+    ): OAuthAuthorizationCode {
         val result = CompletableDeferred<Result<OAuthAuthorizationCode?>>()
         val server = HttpServer.create(InetSocketAddress(CALLBACK_PORT), 0)
 
@@ -68,6 +121,20 @@ class DesktopOAuthLauncher : OAuthLauncher {
         server.executor = null
         server.start()
 
+        openBrowser(fullSignInUrl)
+
+        val authorizationCode = withTimeoutOrNull(TIMEOUT_MS) { result.await() }
+        server.stop(0)
+        return authorizationCode?.getOrThrow()
+            ?: throw OAuthLaunchException("OAuth callback 대기 시간이 초과되었습니다.")
+    }
+
+    private fun buildSignInUrl(
+        signInUrl: String,
+        redirectUri: String,
+        state: String,
+        codeChallenge: String,
+    ): String {
         val fullSignInUrl = buildString {
             append(signInUrl)
             append("?")
@@ -84,16 +151,71 @@ class DesktopOAuthLauncher : OAuthLauncher {
             appendQueryParam("code_challenge_method", "S256")
         }
 
-        runCatching {
-            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
-                Desktop.getDesktop().browse(URI(fullSignInUrl))
-            }
-        }
+        return fullSignInUrl
+    }
 
-        val authorizationCode = withTimeoutOrNull(TIMEOUT_MS) { result.await() }
-        server.stop(0)
-        return authorizationCode?.getOrThrow()
-            ?: throw OAuthLaunchException("OAuth callback 대기 시간이 초과되었습니다.")
+    private fun openBrowser(url: String) {
+        val opened = runCatching {
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                Desktop.getDesktop().browse(URI(url))
+                true
+            } else {
+                false
+            }
+        }.getOrDefault(false)
+
+        if (!opened) {
+            throw OAuthLaunchException("시스템 브라우저를 열 수 없습니다.")
+        }
+    }
+
+    private fun parseAuthorizationCode(
+        rawQuery: String?,
+        expectedState: String,
+        codeVerifier: String,
+        redirectUri: String,
+    ): OAuthAuthorizationCode {
+        val params = parseParams(rawQuery)
+        val code = params["code"]
+        val returnedState = params["state"]
+        val error = params["error"]
+        val errorDescription = params["error_description"]
+
+        return when {
+            error != null -> throw OAuthLaunchException(
+                "DataGSM OAuth 오류: $error ${errorDescription.orEmpty()}".trim()
+            )
+            code == null -> throw OAuthLaunchException(
+                "OAuth callback에 authorization code가 없습니다. params=${params.keys}"
+            )
+            returnedState != expectedState -> throw OAuthLaunchException("OAuth state 검증 실패")
+            else -> OAuthAuthorizationCode(
+                code = code,
+                state = expectedState,
+                codeVerifier = codeVerifier,
+                redirectUri = redirectUri,
+            )
+        }
+    }
+
+    private fun resolveRedirectUri(): String {
+        return System.getProperty(REDIRECT_URI_PROPERTY)
+            ?: System.getenv(REDIRECT_URI_ENV)
+            ?: defaultRedirectUri()
+    }
+
+    private fun defaultRedirectUri(): String {
+        val customSchemeUri =
+            "${AppConfig.DESKTOP_OAUTH_SCHEME}://${AppConfig.DESKTOP_OAUTH_CALLBACK_HOST}${AppConfig.DESKTOP_OAUTH_CALLBACK_PATH}"
+        val localCallbackUri = "http://localhost:$CALLBACK_PORT${AppConfig.DESKTOP_OAUTH_CALLBACK_PATH}"
+
+        return if (isPackagedMacApplication()) customSchemeUri else localCallbackUri
+    }
+
+    private fun isPackagedMacApplication(): Boolean {
+        val osName = System.getProperty("os.name").lowercase()
+        val javaHome = System.getProperty("java.home")
+        return osName.contains("mac") && ".app/Contents" in javaHome
     }
 
     private fun parseParams(rawQuery: String?): Map<String, String> {
