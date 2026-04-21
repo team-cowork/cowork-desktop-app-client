@@ -149,6 +149,8 @@ class DesktopOAuthLauncher : OAuthLauncher {
             appendQueryParam("code_challenge", codeChallenge)
             append("&")
             appendQueryParam("code_challenge_method", "S256")
+            append("&")
+            appendQueryParam("scope", "datagsm:self_read")
         }
 
         return fullSignInUrl
