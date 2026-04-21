@@ -129,11 +129,6 @@ compose.desktop {
             macOS {
                 iconFile.set(project.file("icons/AppIcon.icns"))
                 bundleID = "com.cowork.appclient"
-                signing {
-                    sign.set(true)
-                    identity.set("Developer ID Application: Gwangju Software Meister High School (UB2797YAAH)")
-                }
-
                 infoPlist {
                     extraKeysRawXml = """
                         <key>CFBundleURLTypes</key>
