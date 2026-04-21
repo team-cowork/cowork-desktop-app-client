@@ -114,6 +114,35 @@ jobs:
             fi
           done < <(find "$APP/Contents" -type f)
 
+          while IFS= read -r jar_file; do
+            if ! jar tf "$jar_file" | grep -q '\.dylib$'; then
+              continue
+            fi
+
+            echo "Signing native libraries inside jar: $jar_file"
+            tmp_dir=$(mktemp -d)
+            jar_path=$(realpath "$jar_file")
+            (
+              cd "$tmp_dir"
+              jar xf "$jar_path"
+
+              while IFS= read -r dylib; do
+                if file "$dylib" | grep -Eq 'Mach-O|dynamically linked shared library'; then
+                  echo "Signing jar dylib: $jar_file!/$dylib"
+                  codesign --force \
+                    --sign "$IDENTITY" \
+                    --keychain "$SIGNING_KEYCHAIN" \
+                    --options runtime \
+                    --timestamp \
+                    "$dylib"
+                fi
+              done < <(find . -type f -name "*.dylib")
+
+              jar cf "$jar_path" .
+            )
+            rm -rf "$tmp_dir"
+          done < <(find "$APP/Contents/app" -type f -name "*.jar")
+
           while IFS= read -r bundle; do
             echo "Signing nested bundle: $bundle"
             codesign --force \
