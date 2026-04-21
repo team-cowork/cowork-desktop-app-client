@@ -12,7 +12,7 @@ concurrency:
 jobs:
   Mac-OS-Release:
     runs-on: macos-latest
-    environment: 'Prod-CD'
+    environment: Prod-CD
     permissions:
       contents: write
     outputs:
