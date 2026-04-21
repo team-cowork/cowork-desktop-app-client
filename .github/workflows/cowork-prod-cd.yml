@@ -167,7 +167,7 @@ jobs:
           webhook: ${{ secrets.DISCORD_INFORMATION_ALERT_CHANNEL_WEBHOOK }}
           status: ${{ steps.status.outputs.status }}
           color: ${{ steps.status.outputs.color }}
-          title: "cowork Client Release"
+          title: "cowork App Client Prod CD"
           description: |
             `${{ github.ref_name }}` · `${{ steps.sha.outputs.short }}` · by **${{ github.actor }}**
             **Release:** ${{ needs.Mac-OS-Release.outputs.tag }}
