@@ -101,12 +101,37 @@ jobs:
           APP="composeApp/build/compose/binaries/main/app/cowork.app"
           IDENTITY="Developer ID Application: Gwangju Software Meister High School (UB2797YAAH)"
           security unlock-keychain -p "temp_password" "$SIGNING_KEYCHAIN"
-          codesign --deep --force --verify \
+
+          while IFS= read -r file; do
+            if file "$file" | grep -Eq 'Mach-O|dynamically linked shared library'; then
+              echo "Signing nested binary: $file"
+              codesign --force \
+                --sign "$IDENTITY" \
+                --keychain "$SIGNING_KEYCHAIN" \
+                --options runtime \
+                --timestamp \
+                "$file"
+            fi
+          done < <(find "$APP/Contents" -type f)
+
+          while IFS= read -r bundle; do
+            echo "Signing nested bundle: $bundle"
+            codesign --force \
+              --sign "$IDENTITY" \
+              --keychain "$SIGNING_KEYCHAIN" \
+              --options runtime \
+              --timestamp \
+              "$bundle"
+          done < <(find "$APP/Contents" -type d \( -name "*.framework" -o -name "*.app" \) | sort -r)
+
+          codesign --force --verify \
             --sign "$IDENTITY" \
             --keychain "$SIGNING_KEYCHAIN" \
             --options runtime \
             --timestamp \
             "$APP"
+
+          codesign --verify --deep --strict --verbose=2 "$APP"
 
       - name: Notarize App Bundle
         env:
