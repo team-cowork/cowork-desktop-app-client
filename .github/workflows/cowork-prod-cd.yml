@@ -44,16 +44,10 @@ jobs:
             echo "$COMMITS"
           } > release_notes.md
 
-      - name: Create Tag
-        run: git tag ${{ steps.version.outputs.tag }}
-
-      - name: Push Tag
-        run: git push origin ${{ steps.version.outputs.tag }}
-
-      - name: Set Up JDK 17
+      - name: Set Up JDK 21
         uses: actions/setup-java@v5
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
 
       - name: Setup Gradle
@@ -67,14 +61,33 @@ jobs:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
           MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
         run: |
+          set -euo pipefail
+
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
           echo "$MACOS_CERTIFICATE" | base64 --decode > /tmp/certificate.p12
           security create-keychain -p "temp_password" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "temp_password" "$KEYCHAIN_PATH"
-          security import /tmp/certificate.p12 -P "$MACOS_CERTIFICATE_PWD" -A -f pkcs12 -k "$KEYCHAIN_PATH"
-          security set-key-partition-list -S apple-tool:,apple: -s -k "temp_password" "$KEYCHAIN_PATH"
+
+          security import /tmp/certificate.p12 \
+            -P "$MACOS_CERTIFICATE_PWD" \
+            -A \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+
           security list-keychains -d user -s "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+
+          IDENTITIES=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH")
+          echo "$IDENTITIES"
+          if ! echo "$IDENTITIES" | grep -q "Developer ID Application"; then
+            echo "::error::No Developer ID Application signing identity was imported. Check MACOS_CERTIFICATE contains a .p12 with the private key and MACOS_CERTIFICATE_PWD is correct."
+            exit 1
+          fi
+
+          security set-key-partition-list -S apple-tool:,apple: -s -k "temp_password" "$KEYCHAIN_PATH"
           echo "SIGNING_KEYCHAIN=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
           rm /tmp/certificate.p12
 
@@ -127,6 +140,12 @@ jobs:
 
       - name: Staple Notarization Ticket
         run: xcrun stapler staple "composeApp/build/compose/binaries/main/dmg/cowork-1.0.0.dmg"
+
+      - name: Create Tag
+        run: git tag ${{ steps.version.outputs.tag }}
+
+      - name: Push Tag
+        run: git push origin ${{ steps.version.outputs.tag }}
 
       - name: Create Draft Release
         uses: softprops/action-gh-release@v2
