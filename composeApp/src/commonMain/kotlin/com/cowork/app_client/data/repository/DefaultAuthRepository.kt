@@ -3,6 +3,7 @@ package com.cowork.app_client.data.repository
 import com.cowork.app_client.data.local.TokenStorage
 import com.cowork.app_client.data.remote.AuthApi
 import com.cowork.app_client.domain.model.AuthTokens
+import com.cowork.app_client.feature.auth.OAuthAuthorizationCode
 
 class DefaultAuthRepository(
     private val tokenStorage: TokenStorage,
@@ -19,6 +20,9 @@ class DefaultAuthRepository(
         tokenStorage.saveTokens(tokens.accessToken, tokens.refreshToken)
     }
 
+    override suspend fun exchangeAuthorizationCode(authorizationCode: OAuthAuthorizationCode): AuthTokens =
+        authApi.exchangeAuthorizationCode(authorizationCode)
+
     override suspend fun refreshTokens(): AuthTokens? {
         val refreshToken = tokenStorage.getRefreshToken() ?: return null
         return runCatching {
@@ -30,8 +34,9 @@ class DefaultAuthRepository(
 
     override suspend fun signOut() {
         val accessToken = tokenStorage.getAccessToken()
-        if (accessToken != null) {
-            runCatching { authApi.signOut(accessToken) }
+        val refreshToken = tokenStorage.getRefreshToken()
+        if (accessToken != null && refreshToken != null) {
+            runCatching { authApi.signOut(accessToken, refreshToken) }
         }
         tokenStorage.clearTokens()
     }

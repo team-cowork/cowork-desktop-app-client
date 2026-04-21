@@ -1,45 +1,73 @@
 package com.cowork.app_client.data.remote
 
 import com.cowork.app_client.domain.model.AuthTokens
+import com.cowork.app_client.feature.auth.OAuthAuthorizationCode
 import io.ktor.client.HttpClient
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
+import io.ktor.client.call.body
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 
 class AuthApi(
     private val client: HttpClient,
     private val baseUrl: String,
 ) {
-    private val json = Json { ignoreUnknownKeys = true }
-
-    suspend fun refresh(refreshToken: String): AuthTokens {
-        val response = client.post("$baseUrl/auth/refresh") {
+    suspend fun exchangeAuthorizationCode(authorizationCode: OAuthAuthorizationCode): AuthTokens {
+        val body = client.post("$baseUrl/auth/exchange") {
             contentType(ContentType.Application.Json)
-            setBody(RefreshRequest(refreshToken))
-        }
-        val body = json.decodeFromString<TokenResponse>(response.bodyAsText())
+            setBody(
+                AuthorizationCodeExchangeRequest(
+                    code = authorizationCode.code,
+                    codeVerifier = authorizationCode.codeVerifier,
+                    redirectUri = authorizationCode.redirectUri,
+                )
+            )
+        }.body<TokenResponse>()
         return AuthTokens(body.accessToken, body.refreshToken)
     }
 
-    suspend fun signOut(accessToken: String) {
+    suspend fun refresh(refreshToken: String): AuthTokens {
+        val body = client.post("$baseUrl/auth/refresh") {
+            contentType(ContentType.Application.Json)
+            setBody(RefreshRequest(refreshToken))
+        }.body<TokenResponse>()
+        return AuthTokens(body.accessToken, body.refreshToken)
+    }
+
+    suspend fun signOut(accessToken: String, refreshToken: String) {
         client.post("$baseUrl/auth/signout") {
             bearerAuth(accessToken)
+            contentType(ContentType.Application.Json)
+            setBody(RefreshRequest(refreshToken))
         }
     }
 
     fun getSignInUrl(): String = "$baseUrl/auth/signin"
 
     @Serializable
-    private data class RefreshRequest(val refreshToken: String)
+    private data class AuthorizationCodeExchangeRequest(
+        val code: String,
+        @SerialName("code_verifier")
+        val codeVerifier: String,
+        @SerialName("redirect_uri")
+        val redirectUri: String,
+    )
+
+    @Serializable
+    private data class RefreshRequest(
+        @SerialName("refresh_token")
+        val refreshToken: String,
+    )
 
     @Serializable
     data class TokenResponse(
+        @SerialName("access_token")
         val accessToken: String,
+        @SerialName("refresh_token")
         val refreshToken: String,
     )
 }
