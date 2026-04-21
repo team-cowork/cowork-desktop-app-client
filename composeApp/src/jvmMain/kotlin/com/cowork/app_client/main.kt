@@ -7,13 +7,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -21,8 +20,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowScope
@@ -74,7 +71,7 @@ fun main() {
             undecorated = !isMacOs,
         ) {
             LaunchedEffect(Unit) {
-                window.minimumSize = Dimension(960, 620)
+                window.minimumSize = Dimension(1180, 680)
                 if (isMacOs) {
                     (window as? JFrame)?.rootPane?.apply {
                         putClientProperty("apple.awt.fullWindowContent", true)
@@ -84,21 +81,19 @@ fun main() {
                 }
             }
 
-            if (isMacOs) {
+            AppWindowChrome(
+                isMacOs = isMacOs,
+                onClose = ::exitApplication,
+            ) {
                 App(root)
-            } else {
-                DesktopWindowFrame(
-                    onClose = ::exitApplication,
-                ) {
-                    App(root)
-                }
             }
         }
     }
 }
 
 @Composable
-private fun WindowScope.DesktopWindowFrame(
+private fun WindowScope.AppWindowChrome(
+    isMacOs: Boolean,
     onClose: () -> Unit,
     content: @Composable () -> Unit,
 ) {
@@ -107,53 +102,10 @@ private fun WindowScope.DesktopWindowFrame(
             .fillMaxSize()
             .background(Color(0xFF1E1F22)),
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(34.dp)
-                .background(Color(0xFF1E1F22))
-                .pointerInput(Unit) {
-                    detectDragGestures { _, dragAmount ->
-                        val frame = window as? Frame
-                        if (frame?.extendedState == Frame.MAXIMIZED_BOTH) return@detectDragGestures
-
-                        val location = window.location
-                        window.setLocation(
-                            (location.x + dragAmount.x).toInt(),
-                            (location.y + dragAmount.y).toInt(),
-                        )
-                    }
-                },
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(34.dp)
-                    .background(Color(0xFF1E1F22)),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Spacer(modifier = Modifier.width(14.dp))
-                Text(
-                    text = "cowork",
-                    color = Color(0xFFE3E5E8),
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Spacer(modifier = Modifier.weight(1f))
-                WindowControlButton(label = "−") {
-                    (window as? Frame)?.extendedState = Frame.ICONIFIED
-                }
-                WindowControlButton(label = "□") {
-                    val frame = window as? Frame ?: return@WindowControlButton
-                    val isMaximized = frame.extendedState and Frame.MAXIMIZED_BOTH == Frame.MAXIMIZED_BOTH
-                    frame.extendedState = if (isMaximized) Frame.NORMAL else Frame.MAXIMIZED_BOTH
-                }
-                WindowControlButton(
-                    label = "×",
-                    background = Color(0xFFED4245),
-                    onClick = onClose,
-                )
-            }
-        }
+        AppTitleBar(
+            isMacOs = isMacOs,
+            onClose = onClose,
+        )
 
         Box(modifier = Modifier.weight(1f)) {
             content()
@@ -162,14 +114,70 @@ private fun WindowScope.DesktopWindowFrame(
 }
 
 @Composable
+private fun WindowScope.AppTitleBar(
+    isMacOs: Boolean,
+    onClose: () -> Unit,
+) {
+    val titleBarHeight = if (isMacOs) 26.dp else 32.dp
+
+    Column {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(titleBarHeight)
+                .background(Color(0xE61E1F22)),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(start = if (isMacOs) 84.dp else 0.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (!isMacOs) {
+                    WindowControlButton(
+                        label = "−",
+                        height = titleBarHeight,
+                    ) {
+                        (window as? Frame)?.extendedState = Frame.ICONIFIED
+                    }
+                    WindowControlButton(
+                        label = "□",
+                        height = titleBarHeight,
+                    ) {
+                        val frame = window as? Frame ?: return@WindowControlButton
+                        val isMaximized = frame.extendedState and Frame.MAXIMIZED_BOTH == Frame.MAXIMIZED_BOTH
+                        frame.extendedState = if (isMaximized) Frame.NORMAL else Frame.MAXIMIZED_BOTH
+                    }
+                    WindowControlButton(
+                        label = "×",
+                        height = titleBarHeight,
+                        background = Color(0xFFED4245),
+                        onClick = onClose,
+                    )
+                }
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(Color.White.copy(alpha = 0.08f)),
+        )
+    }
+}
+
+@Composable
 private fun WindowControlButton(
     label: String,
+    height: androidx.compose.ui.unit.Dp,
     background: Color = Color.Transparent,
     onClick: () -> Unit,
 ) {
     Box(
         modifier = Modifier
-            .size(width = 46.dp, height = 34.dp)
+            .size(width = 46.dp, height = height)
             .background(background)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
