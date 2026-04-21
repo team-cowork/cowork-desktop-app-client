@@ -152,7 +152,7 @@ compose.desktop {
             }
 
             windows {
-                iconFile.set(project.file("icons/AppIcon.ico"))
+                iconFile.set(project.file("icons/AppIcon_windows.ico"))
             }
         }
 
