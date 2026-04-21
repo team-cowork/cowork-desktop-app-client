@@ -8,6 +8,9 @@ import com.arkivanov.decompose.DefaultComponentContext
 import com.arkivanov.decompose.defaultComponentContext
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.cowork.app_client.data.repository.AuthRepository
+import com.cowork.app_client.data.repository.ChannelRepository
+import com.cowork.app_client.data.repository.ChatRepository
+import com.cowork.app_client.data.repository.TeamRepository
 import com.cowork.app_client.di.androidModule
 import com.cowork.app_client.di.commonModule
 import com.cowork.app_client.feature.auth.OAuthLauncher
@@ -30,6 +33,9 @@ class MainActivity : ComponentActivity() {
             componentContext = defaultComponentContext(),
             storeFactory = DefaultStoreFactory(),
             authRepository = get<AuthRepository>(),
+            teamRepository = get<TeamRepository>(),
+            channelRepository = get<ChannelRepository>(),
+            chatRepository = get<ChatRepository>(),
             oAuthLauncher = get<OAuthLauncher>(),
         )
 

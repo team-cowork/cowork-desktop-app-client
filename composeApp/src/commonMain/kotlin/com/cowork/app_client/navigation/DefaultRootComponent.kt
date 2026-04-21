@@ -8,8 +8,12 @@ import com.arkivanov.decompose.router.stack.replaceAll
 import com.arkivanov.decompose.value.Value
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.cowork.app_client.data.repository.AuthRepository
+import com.cowork.app_client.data.repository.ChannelRepository
+import com.cowork.app_client.data.repository.ChatRepository
+import com.cowork.app_client.data.repository.TeamRepository
 import com.cowork.app_client.feature.auth.OAuthLauncher
 import com.cowork.app_client.feature.auth.component.DefaultAuthComponent
+import com.cowork.app_client.feature.main.component.DefaultMainComponent
 import com.cowork.app_client.navigation.RootComponent.Child
 import kotlinx.serialization.Serializable
 
@@ -17,6 +21,9 @@ class DefaultRootComponent(
     componentContext: ComponentContext,
     private val storeFactory: StoreFactory,
     private val authRepository: AuthRepository,
+    private val teamRepository: TeamRepository,
+    private val channelRepository: ChannelRepository,
+    private val chatRepository: ChatRepository,
     private val oAuthLauncher: OAuthLauncher,
 ) : RootComponent, ComponentContext by componentContext {
 
@@ -43,7 +50,15 @@ class DefaultRootComponent(
                     onAuthenticated = { navigation.replaceAll(Config.Main) },
                 )
             )
-            Config.Main -> Child.Main
+            Config.Main -> Child.Main(
+                DefaultMainComponent(
+                    componentContext = context,
+                    storeFactory = storeFactory,
+                    teamRepository = teamRepository,
+                    channelRepository = channelRepository,
+                    chatRepository = chatRepository,
+                )
+            )
         }
 
     @Serializable

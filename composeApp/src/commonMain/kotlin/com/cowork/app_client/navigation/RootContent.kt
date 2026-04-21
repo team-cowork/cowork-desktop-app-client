@@ -16,10 +16,10 @@ fun RootContent(component: RootComponent) {
     Children(
         stack = childStack,
         animation = stackAnimation(slide()),
-    ) { child ->
+        ) { child ->
         when (val instance = child.instance) {
             is RootComponent.Child.Auth -> LoginScreen(instance.component)
-            is RootComponent.Child.Main -> MainScreen()
+            is RootComponent.Child.Main -> MainScreen(instance.component)
         }
     }
 }

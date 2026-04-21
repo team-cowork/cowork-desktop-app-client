@@ -5,7 +5,6 @@ import com.arkivanov.mvikotlin.core.store.Store
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.cowork.app_client.data.repository.AuthRepository
-import com.cowork.app_client.domain.model.AuthTokens
 import com.cowork.app_client.feature.auth.OAuthLauncher
 import com.cowork.app_client.feature.auth.store.AuthStore.Intent
 import com.cowork.app_client.feature.auth.store.AuthStore.Label
@@ -47,8 +46,12 @@ class AuthStoreFactory(
         private fun login() {
             scope.launch {
                 dispatch(Msg.SetLoading(true))
-                val signInUrl = authRepository.getSignInUrl()
-                val tokens = oAuthLauncher.launch(signInUrl)
+                val tokens = runCatching {
+                    val signInUrl = authRepository.getSignInUrl()
+                    val authorizationCode = oAuthLauncher.launch(signInUrl) ?: return@runCatching null
+                    authRepository.exchangeAuthorizationCode(authorizationCode)
+                }.getOrNull()
+
                 if (tokens != null) {
                     authRepository.saveTokens(tokens)
                     dispatch(Msg.SetLoading(false))
