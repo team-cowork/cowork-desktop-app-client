@@ -29,7 +29,7 @@ interface MainStore : Store<Intent, State, Label> {
         data object SubmitCreateChannel : Intent
         data object OpenAccountMenu : Intent
         data object CloseAccountMenu : Intent
-        data class SetStatus(val status: UserStatus, val expiresInHours: Int?) : Intent
+        data class SetStatus(val status: UserStatus, val expiresInHours: Double?) : Intent
         data object SignOut : Intent
     }
 

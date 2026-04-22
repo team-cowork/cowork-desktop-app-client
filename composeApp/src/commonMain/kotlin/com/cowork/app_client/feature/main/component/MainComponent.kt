@@ -24,6 +24,6 @@ interface MainComponent {
     fun onCreateChannelSubmit()
     fun onAccountMenuClick()
     fun onAccountMenuDismiss()
-    fun onStatusChange(status: UserStatus, expiresInHours: Int?)
+    fun onStatusChange(status: UserStatus, expiresInHours: Double?)
     fun onSignOutClick()
 }

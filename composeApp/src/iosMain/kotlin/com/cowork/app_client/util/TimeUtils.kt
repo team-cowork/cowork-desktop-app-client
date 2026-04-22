@@ -6,7 +6,7 @@ import platform.Foundation.NSTimeZone
 import platform.Foundation.dateWithTimeIntervalSinceNow
 import platform.Foundation.timeZoneForSecondsFromGMT
 
-internal actual fun nowPlusHoursIso8601(hours: Int): String {
+internal actual fun nowPlusHoursIso8601(hours: Double): String {
     val date = NSDate.dateWithTimeIntervalSinceNow(hours * 3600.0)
     val formatter = NSDateFormatter()
     formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'"

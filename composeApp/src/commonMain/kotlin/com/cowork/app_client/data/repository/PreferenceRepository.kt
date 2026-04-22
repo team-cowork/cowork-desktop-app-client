@@ -6,7 +6,7 @@ import com.cowork.app_client.util.nowPlusHoursIso8601
 
 interface PreferenceRepository {
     suspend fun getAccountStatus(accountId: Long): UserStatus
-    suspend fun updateAccountStatus(accountId: Long, status: UserStatus, expiresInHours: Int?)
+    suspend fun updateAccountStatus(accountId: Long, status: UserStatus, expiresInHours: Double?)
 }
 
 class DefaultPreferenceRepository(
@@ -22,7 +22,7 @@ class DefaultPreferenceRepository(
         return settings.status.toUserStatus()
     }
 
-    override suspend fun updateAccountStatus(accountId: Long, status: UserStatus, expiresInHours: Int?) {
+    override suspend fun updateAccountStatus(accountId: Long, status: UserStatus, expiresInHours: Double?) {
         val token = authRepository.getStoredTokens()?.accessToken ?: return
         val expiresAt = if (status == UserStatus.DoNotDisturb && expiresInHours != null) {
             nowPlusHoursIso8601(expiresInHours)

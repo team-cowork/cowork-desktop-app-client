@@ -201,7 +201,7 @@ private fun ChannelPane(
     onCreateChannelClick: () -> Unit,
     onAccountBarClick: () -> Unit,
     onAccountMenuDismiss: () -> Unit,
-    onStatusChange: (UserStatus, Int?) -> Unit,
+    onStatusChange: (UserStatus, Double?) -> Unit,
     onSignOut: () -> Unit,
 ) {
     Box(
@@ -394,7 +394,7 @@ private fun AccountBar(
 @Composable
 private fun AccountMenuCard(
     state: MainStore.State,
-    onStatusChange: (UserStatus, Int?) -> Unit,
+    onStatusChange: (UserStatus, Double?) -> Unit,
     onDismiss: () -> Unit,
     onSignOut: () -> Unit,
 ) {
@@ -535,7 +535,7 @@ private fun StatusOption(
 private fun DndExpiryRow(
     label: String = "방해금지",
     isLoading: Boolean,
-    onSelect: (Int?) -> Unit,
+    onSelect: (Double?) -> Unit,
 ) {
     Column(modifier = Modifier.padding(start = 28.dp, end = 8.dp, bottom = 4.dp)) {
         Text(
@@ -546,28 +546,16 @@ private fun DndExpiryRow(
         Spacer(modifier = Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf(
-                "30분" to 0, // 0.5h → 보내는 건 따로 처리
-                "1시간" to 1,
-                "2시간" to 2,
-                "4시간" to 4,
+                "30분" to 0.5,
+                "1시간" to 1.0,
+                "2시간" to 2.0,
+                "4시간" to 4.0,
                 "해제없음" to null,
             ).forEach { (labelText, hours) ->
                 ExpiryChip(
                     text = labelText,
                     enabled = !isLoading,
-                    onClick = {
-                        if (labelText == "30분") {
-                            // 30분은 별도로 처리 (0.5시간이라 Int? 범위 밖)
-                            // 실제로는 서버에 직접 계산된 시간 전달
-                            // 여기서는 1을 보내되 서버 쪽에서 30분으로 사용할 수 없으므로
-                            // expiresInHours 인터페이스를 Float으로 바꾸거나
-                            // 30분은 특수 처리 - 편의상 1시간으로 대체하거나 별도 처리
-                            // 지금은 편의를 위해 1시간과 같은 1을 전달
-                            onSelect(1)
-                        } else {
-                            onSelect(hours)
-                        }
-                    },
+                    onClick = { onSelect(hours) },
                 )
             }
         }

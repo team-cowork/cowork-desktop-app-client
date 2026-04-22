@@ -194,7 +194,7 @@ class MainStoreFactory(
             }
         }
 
-        private fun updateStatus(status: UserStatus, expiresInHours: Int?) {
+        private fun updateStatus(status: UserStatus, expiresInHours: Double?) {
             val accountId = state().accountId ?: return
             if (state().isUpdatingStatus) return
             scope.launch {

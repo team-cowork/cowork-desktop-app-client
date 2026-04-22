@@ -2,11 +2,21 @@ package com.cowork.app_client.util
 
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 
 internal data class JwtClaims(
     val accountId: Long? = null,
     val email: String? = null,
 )
+
+@Serializable
+private data class JwtPayload(
+    val sub: String? = null,
+    val email: String? = null,
+)
+
+private val lenientJson = Json { ignoreUnknownKeys = true; isLenient = true }
 
 @OptIn(ExperimentalEncodingApi::class)
 internal fun parseJwtClaims(jwt: String): JwtClaims {
@@ -15,12 +25,10 @@ internal fun parseJwtClaims(jwt: String): JwtClaims {
         val padLength = (4 - rawPayload.length % 4) % 4
         val padded = rawPayload + "=".repeat(padLength)
         val decoded = Base64.UrlSafe.decode(padded)
-        val json = decoded.decodeToString()
-        val subRegex = Regex(""""sub"\s*:\s*"?(\d+)"?""")
-        val emailRegex = Regex(""""email"\s*:\s*"([^"]+)"""")
+        val payload = lenientJson.decodeFromString<JwtPayload>(decoded.decodeToString())
         JwtClaims(
-            accountId = subRegex.find(json)?.groupValues?.getOrNull(1)?.toLongOrNull(),
-            email = emailRegex.find(json)?.groupValues?.getOrNull(1),
+            accountId = payload.sub?.toLongOrNull(),
+            email = payload.email,
         )
     } catch (_: Exception) {
         JwtClaims()
