@@ -3,12 +3,12 @@ package com.cowork.app_client.feature.main.ui
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -114,6 +113,18 @@ fun MainScreen(component: MainComponent) {
             VerticalDivider()
 
             WorkspacePane(state = state)
+        }
+
+        if (state.isAccountMenuOpen) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = component::onAccountMenuDismiss,
+                    ),
+            )
         }
 
         if (state.isCreateTeamOpen) {
@@ -327,13 +338,12 @@ private fun ChannelPane(
         AnimatedVisibility(
             visible = state.isAccountMenuOpen,
             modifier = Modifier.align(Alignment.BottomStart).padding(bottom = 64.dp),
-            enter = slideInVertically { it } + fadeIn(),
-            exit = slideOutVertically { it } + fadeOut(),
+            enter = fadeIn(),
+            exit = fadeOut(),
         ) {
             AccountMenuCard(
                 state = state,
                 onStatusChange = onStatusChange,
-                onDismiss = onAccountMenuDismiss,
                 onSignOut = onSignOut,
             )
         }
@@ -396,55 +406,43 @@ private fun AccountBar(
 private fun AccountMenuCard(
     state: MainStore.State,
     onStatusChange: (UserStatus, Double?) -> Unit,
-    onDismiss: () -> Unit,
     onSignOut: () -> Unit,
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth().padding(8.dp),
         shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 4.dp,
-        shadowElevation = 12.dp,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f),
+        ),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
     ) {
         Column {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(76.dp)
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(
-                                MaterialTheme.colorScheme.primary,
-                                CoworkColors.Red700,
+            Box(modifier = Modifier.fillMaxWidth().height(110.dp)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(76.dp)
+                        .align(Alignment.TopStart)
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(
+                                    MaterialTheme.colorScheme.primary,
+                                    CoworkColors.Red700,
+                                ),
                             ),
                         ),
-                    ),
-            ) {
-                TextButton(
-                    modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
-                    onClick = onDismiss,
-                ) {
-                    Text(
-                        text = "닫기",
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                }
-            }
+                )
 
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(34.dp)
-                    .padding(horizontal = 16.dp),
-            ) {
                 ProfileAvatar(
                     imageUrl = state.accountProfileImageUrl,
                     fallback = state.accountInitial(),
                     size = 68.dp,
                     status = state.accountStatus,
                     ringColor = MaterialTheme.colorScheme.surface,
-                    modifier = Modifier.offset(y = (-34).dp),
+                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 16.dp),
                 )
             }
 
@@ -579,31 +577,36 @@ private fun ProfileAvatar(
     val dotInnerSize = if (size >= 60.dp) 12.dp else 8.dp
 
     Box(modifier = modifier.size(size)) {
-        Box(
+        Surface(
             modifier = Modifier
                 .fillMaxSize()
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primaryContainer),
-            contentAlignment = Alignment.Center,
+                .clip(CircleShape),
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primaryContainer,
         ) {
-            if (image != null) {
-                Image(
-                    bitmap = image,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                )
-            } else {
-                Text(
-                    text = fallback,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    style = if (size >= 60.dp) {
-                        MaterialTheme.typography.headlineSmall
-                    } else {
-                        MaterialTheme.typography.labelLarge
-                    },
-                    fontWeight = FontWeight.Bold,
-                )
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (image != null) {
+                    Image(
+                        bitmap = image,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize().clip(CircleShape),
+                        contentScale = ContentScale.Crop,
+                    )
+                } else {
+                    Text(
+                        text = fallback,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        style = if (size >= 60.dp) {
+                            MaterialTheme.typography.headlineSmall
+                        } else {
+                            MaterialTheme.typography.labelLarge
+                        },
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
             }
         }
 

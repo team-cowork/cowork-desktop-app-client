@@ -78,7 +78,7 @@ class DefaultMainComponent(
     override fun onCreateChannelNoticeChange(notice: String) = store.accept(MainStore.Intent.ChangeCreateChannelNotice(notice))
     override fun onCreateChannelTypeChange(type: ChannelType) = store.accept(MainStore.Intent.ChangeCreateChannelType(type))
     override fun onCreateChannelSubmit() = store.accept(MainStore.Intent.SubmitCreateChannel)
-    override fun onAccountMenuClick() = store.accept(MainStore.Intent.OpenAccountMenu)
+    override fun onAccountMenuClick() = store.accept(MainStore.Intent.ToggleAccountMenu)
     override fun onAccountMenuDismiss() = store.accept(MainStore.Intent.CloseAccountMenu)
     override fun onStatusChange(status: UserStatus, expiresInHours: Double?) = store.accept(MainStore.Intent.SetStatus(status, expiresInHours))
     override fun onSignOutClick() = store.accept(MainStore.Intent.SignOut)

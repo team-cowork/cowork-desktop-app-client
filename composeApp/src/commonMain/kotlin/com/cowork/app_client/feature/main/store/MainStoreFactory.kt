@@ -68,6 +68,7 @@ class MainStoreFactory(
                 is Intent.ChangeCreateChannelType -> dispatch(Msg.SetCreateChannelType(intent.type))
                 Intent.SubmitCreateChannel -> createChannel()
                 Intent.OpenAccountMenu -> dispatch(Msg.SetAccountMenuOpen(true))
+                Intent.ToggleAccountMenu -> dispatch(Msg.SetAccountMenuOpen(!state().isAccountMenuOpen))
                 Intent.CloseAccountMenu -> dispatch(Msg.SetAccountMenuOpen(false))
                 is Intent.SetStatus -> updateStatus(intent.status, intent.expiresInHours)
                 Intent.SignOut -> signOut()
