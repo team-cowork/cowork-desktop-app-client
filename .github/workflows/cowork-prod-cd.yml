@@ -162,79 +162,6 @@ jobs:
 
           codesign --verify --deep --strict --verbose=2 "$APP"
 
-      - name: Notarize App Bundle
-        env:
-          NOTARIZATION_APPLE_ID: ${{ secrets.NOTARIZATION_APPLE_ID }}
-          NOTARIZATION_PWD: ${{ secrets.NOTARIZATION_PWD }}
-          NOTARIZATION_TEAM_ID: ${{ secrets.NOTARIZATION_TEAM_ID }}
-        run: |
-          echo "APP_NOTARIZATION_ACCEPTED=false" >> "$GITHUB_ENV"
-          APP="composeApp/build/compose/binaries/main/app/cowork.app"
-          APP_ZIP="composeApp/build/compose/binaries/main/app/cowork.app.zip"
-
-          ditto -c -k --keepParent "$APP" "$APP_ZIP"
-
-          xcrun notarytool submit "$APP_ZIP" \
-            --apple-id "$NOTARIZATION_APPLE_ID" \
-            --password "$NOTARIZATION_PWD" \
-            --team-id "$NOTARIZATION_TEAM_ID" \
-            --output-format json \
-            | tee app-notarization.json
-
-          APP_NOTARIZATION_ID=$(ruby -rjson -e 'puts JSON.parse(File.read("app-notarization.json")).fetch("id")')
-
-          for attempt in {1..15}; do
-            echo "Checking app notarization status, attempt ${attempt}/15"
-            if xcrun notarytool info "$APP_NOTARIZATION_ID" \
-              --apple-id "$NOTARIZATION_APPLE_ID" \
-              --password "$NOTARIZATION_PWD" \
-              --team-id "$NOTARIZATION_TEAM_ID" \
-              --output-format json \
-              > app-notarization-info.json; then
-              APP_NOTARIZATION_STATUS=$(ruby -rjson -e 'puts JSON.parse(File.read("app-notarization-info.json")).fetch("status")')
-              echo "App notarization status: $APP_NOTARIZATION_STATUS"
-
-              if [ "$APP_NOTARIZATION_STATUS" = "Accepted" ]; then
-                echo "APP_NOTARIZATION_ACCEPTED=true" >> "$GITHUB_ENV"
-                exit 0
-              fi
-
-              if [ "$APP_NOTARIZATION_STATUS" = "Invalid" ]; then
-                xcrun notarytool log "$APP_NOTARIZATION_ID" \
-                  --apple-id "$NOTARIZATION_APPLE_ID" \
-                  --password "$NOTARIZATION_PWD" \
-                  --team-id "$NOTARIZATION_TEAM_ID"
-                echo "::error::App notarization failed with status: $APP_NOTARIZATION_STATUS"
-                exit 1
-              fi
-            else
-              echo "Failed to query app notarization status. Retrying..."
-            fi
-
-            sleep 20
-          done
-
-          echo "::warning::App bundle notarization is still in progress. Continuing with DMG notarization as the required release artifact."
-
-      - name: Staple App Bundle
-        if: env.APP_NOTARIZATION_ACCEPTED == 'true'
-        run: |
-          APP="composeApp/build/compose/binaries/main/app/cowork.app"
-
-          for attempt in {1..10}; do
-            echo "Stapling app notarization ticket, attempt ${attempt}/10"
-            if xcrun stapler staple -v "$APP"; then
-              xcrun stapler validate -v "$APP"
-              exit 0
-            fi
-
-            echo "App notarization ticket is not available yet. Waiting 30 seconds..."
-            sleep 30
-          done
-
-          echo "::error::Failed to staple app notarization ticket after 10 attempts."
-          exit 1
-
       - name: Create DMG
         run: |
           APP="composeApp/build/compose/binaries/main/app/cowork.app"
@@ -244,6 +171,7 @@ jobs:
             -srcfolder "$APP" \
             -ov -format UDZO \
             "$DMG_DIR/${{ steps.version.outputs.dmg_name }}"
+          hdiutil verify "$DMG_DIR/${{ steps.version.outputs.dmg_name }}"
 
       - name: Sign DMG
         run: |
@@ -319,7 +247,7 @@ jobs:
             sleep 30
           done
 
-          echo "::warning::Failed to staple DMG notarization ticket after 10 attempts. The app bundle inside the DMG is already stapled, and the DMG notarization was accepted."
+          echo "::warning::Failed to staple DMG notarization ticket after 10 attempts. The DMG notarization was accepted, but offline Gatekeeper validation can still require a stapled ticket."
 
       - name: Create Tag
         run: git tag ${{ steps.version.outputs.tag }}
