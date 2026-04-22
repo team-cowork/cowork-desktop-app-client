@@ -20,7 +20,7 @@ class ChannelApi(
     suspend fun getTeamChannels(accessToken: String, teamId: Long): List<Channel> =
         client.get("$baseUrl/teams/$teamId/channels") {
             bearerAuth(accessToken)
-        }.body<List<ChannelResponse>>().map(ChannelResponse::toDomain)
+        }.body<ApiResponse<List<ChannelResponse>>>().data.orEmpty().map(ChannelResponse::toDomain)
 
     suspend fun createChannel(
         accessToken: String,
@@ -41,7 +41,7 @@ class ChannelApi(
                     projectId = projectId,
                 )
             )
-        }.body<ChannelResponse>().toDomain()
+        }.body<ApiResponse<ChannelResponse>>().data?.toDomain() ?: error("채널 생성 응답에 data가 없습니다")
 
     @Serializable
     private data class CreateChannelRequest(

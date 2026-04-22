@@ -24,7 +24,7 @@ class ChatApi(
             bearerAuth(accessToken)
             parameter("before", before)
             parameter("limit", limit)
-        }.body<List<MessageResponse>>().map(MessageResponse::toDomain)
+        }.body<ApiResponse<List<MessageResponse>>>().data.orEmpty().map(MessageResponse::toDomain)
 
     @Serializable
     private data class MessageResponse(

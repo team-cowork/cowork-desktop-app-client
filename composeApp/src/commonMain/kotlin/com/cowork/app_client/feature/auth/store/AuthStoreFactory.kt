@@ -81,7 +81,7 @@ class AuthStoreFactory(
 
     private fun toLoginErrorMessage(throwable: Throwable): String = when (throwable) {
         is OAuthLaunchException -> throwable.message ?: "OAuth callback 처리에 실패했습니다."
-        else -> "로그인 토큰 교환에 실패했습니다. 서버 /auth/exchange 구현과 실행 상태를 확인해주세요."
+        else -> "로그인 토큰 교환에 실패했습니다. 서버 /auth/token 구현과 실행 상태를 확인해주세요."
     }
 
     private object AuthReducer : com.arkivanov.mvikotlin.core.store.Reducer<State, Msg> {

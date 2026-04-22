@@ -27,7 +27,7 @@ class AuthApi(
                     redirectUri = authorizationCode.redirectUri,
                 )
             )
-        }.body<TokenResponse>()
+        }.body<ApiResponse<TokenResponse>>().data ?: error("토큰 교환 응답에 data가 없습니다")
         return AuthTokens(body.accessToken, body.refreshToken)
     }
 
@@ -35,7 +35,7 @@ class AuthApi(
         val body = client.post("$baseUrl/auth/refresh") {
             contentType(ContentType.Application.Json)
             setBody(RefreshRequest(refreshToken))
-        }.body<TokenResponse>()
+        }.body<ApiResponse<TokenResponse>>().data ?: error("토큰 갱신 응답에 data가 없습니다")
         return AuthTokens(body.accessToken, body.refreshToken)
     }
 

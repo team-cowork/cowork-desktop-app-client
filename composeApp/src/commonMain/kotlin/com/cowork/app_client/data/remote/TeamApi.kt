@@ -20,7 +20,7 @@ class TeamApi(
     suspend fun getMyTeams(accessToken: String): List<TeamSummary> =
         client.get("$baseUrl/teams") {
             bearerAuth(accessToken)
-        }.body<List<TeamSummaryResponse>>().map(TeamSummaryResponse::toDomain)
+        }.body<ApiResponse<List<TeamSummaryResponse>>>().data.orEmpty().map(TeamSummaryResponse::toDomain)
 
     suspend fun createTeam(
         accessToken: String,
@@ -32,7 +32,7 @@ class TeamApi(
             bearerAuth(accessToken)
             contentType(ContentType.Application.Json)
             setBody(CreateTeamRequest(name, description, iconUrl))
-        }.body<TeamResponse>().toDomain()
+        }.body<ApiResponse<TeamResponse>>().data?.toDomain() ?: error("팀 생성 응답에 data가 없습니다")
 
     @Serializable
     private data class CreateTeamRequest(
