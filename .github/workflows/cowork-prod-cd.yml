@@ -93,85 +93,37 @@ jobs:
           echo "SIGNING_KEYCHAIN=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
           rm /tmp/certificate.p12
 
-      - name: Build Distributable
-        run: ./gradlew :composeApp:createDistributable -PcoworkAppVersion=${{ steps.version.outputs.app_version }}
-
-      - name: Sign App Bundle
+      - name: Package Release DMG
         run: |
-          APP="composeApp/build/compose/binaries/main/app/cowork.app"
           IDENTITY="Developer ID Application: Gwangju Software Meister High School (UB2797YAAH)"
           security unlock-keychain -p "temp_password" "$SIGNING_KEYCHAIN"
 
-          while IFS= read -r file; do
-            if file "$file" | grep -Eq 'Mach-O|dynamically linked shared library'; then
-              echo "Signing nested binary: $file"
-              codesign --force \
-                --sign "$IDENTITY" \
-                --keychain "$SIGNING_KEYCHAIN" \
-                --options runtime \
-                --timestamp \
-                "$file"
-            fi
-          done < <(find "$APP/Contents" -type f)
+          ./gradlew --no-configuration-cache :composeApp:packageReleaseDmg \
+            -PcoworkAppVersion=${{ steps.version.outputs.app_version }} \
+            -Pcompose.desktop.mac.sign=true \
+            -Pcompose.desktop.mac.signing.identity="$IDENTITY" \
+            -Pcompose.desktop.mac.signing.keychain="$SIGNING_KEYCHAIN"
 
-          while IFS= read -r jar_file; do
-            if ! jar tf "$jar_file" | grep -q '\.dylib$'; then
-              continue
-            fi
-
-            echo "Signing native libraries inside jar: $jar_file"
-            tmp_dir=$(mktemp -d)
-            jar_path=$(realpath "$jar_file")
-            (
-              cd "$tmp_dir"
-              jar xf "$jar_path"
-
-              while IFS= read -r dylib; do
-                if file "$dylib" | grep -Eq 'Mach-O|dynamically linked shared library'; then
-                  echo "Signing jar dylib: $jar_file!/$dylib"
-                  codesign --force \
-                    --sign "$IDENTITY" \
-                    --keychain "$SIGNING_KEYCHAIN" \
-                    --options runtime \
-                    --timestamp \
-                    "$dylib"
-                fi
-              done < <(find . -type f -name "*.dylib")
-
-              jar cf "$jar_path" .
-            )
-            rm -rf "$tmp_dir"
-          done < <(find "$APP/Contents/app" -type f -name "*.jar")
-
-          while IFS= read -r bundle; do
-            echo "Signing nested bundle: $bundle"
-            codesign --force \
-              --sign "$IDENTITY" \
-              --keychain "$SIGNING_KEYCHAIN" \
-              --options runtime \
-              --timestamp \
-              "$bundle"
-          done < <(find "$APP/Contents" -type d \( -name "*.framework" -o -name "*.app" \) | sort -r)
-
-          codesign --force --verify \
-            --sign "$IDENTITY" \
-            --keychain "$SIGNING_KEYCHAIN" \
-            --options runtime \
-            --timestamp \
-            "$APP"
+      - name: Prepare DMG
+        run: |
+          APP="composeApp/build/compose/binaries/main-release/app/cowork.app"
+          DMG_DIR="composeApp/build/compose/binaries/main-release/dmg"
+          GENERATED_DMG="$DMG_DIR/cowork-${{ steps.version.outputs.app_version }}.dmg"
+          RELEASE_DMG="$DMG_DIR/${{ steps.version.outputs.dmg_name }}"
 
           codesign --verify --deep --strict --verbose=2 "$APP"
 
-      - name: Create DMG
-        run: |
-          APP="composeApp/build/compose/binaries/main/app/cowork.app"
-          DMG_DIR="composeApp/build/compose/binaries/main/dmg"
-          mkdir -p "$DMG_DIR"
-          hdiutil create -volname "cowork" \
-            -srcfolder "$APP" \
-            -ov -format UDZO \
-            "$DMG_DIR/${{ steps.version.outputs.dmg_name }}"
-          hdiutil verify "$DMG_DIR/${{ steps.version.outputs.dmg_name }}"
+          if [ ! -f "$GENERATED_DMG" ]; then
+            echo "::error::Expected DMG was not created: $GENERATED_DMG"
+            find composeApp/build/compose/binaries -name "*.dmg" -print
+            exit 1
+          fi
+
+          if [ "$GENERATED_DMG" != "$RELEASE_DMG" ]; then
+            mv "$GENERATED_DMG" "$RELEASE_DMG"
+          fi
+
+          hdiutil verify "$RELEASE_DMG"
 
       - name: Sign DMG
         run: |
@@ -180,7 +132,7 @@ jobs:
           codesign --sign "$IDENTITY" \
             --keychain "$SIGNING_KEYCHAIN" \
             --timestamp \
-            "composeApp/build/compose/binaries/main/dmg/${{ steps.version.outputs.dmg_name }}"
+            "composeApp/build/compose/binaries/main-release/dmg/${{ steps.version.outputs.dmg_name }}"
 
       - name: Notarize DMG
         env:
@@ -188,7 +140,7 @@ jobs:
           NOTARIZATION_PWD: ${{ secrets.NOTARIZATION_PWD }}
           NOTARIZATION_TEAM_ID: ${{ secrets.NOTARIZATION_TEAM_ID }}
         run: |
-          DMG="composeApp/build/compose/binaries/main/dmg/${{ steps.version.outputs.dmg_name }}"
+          DMG="composeApp/build/compose/binaries/main-release/dmg/${{ steps.version.outputs.dmg_name }}"
 
           xcrun notarytool submit "$DMG" \
             --apple-id "$NOTARIZATION_APPLE_ID" \
@@ -234,7 +186,7 @@ jobs:
 
       - name: Staple Notarization Ticket
         run: |
-          DMG="composeApp/build/compose/binaries/main/dmg/${{ steps.version.outputs.dmg_name }}"
+          DMG="composeApp/build/compose/binaries/main-release/dmg/${{ steps.version.outputs.dmg_name }}"
 
           for attempt in {1..10}; do
             echo "Stapling DMG notarization ticket, attempt ${attempt}/10"
@@ -262,7 +214,7 @@ jobs:
           name: ${{ steps.version.outputs.tag }}
           body_path: release_notes.md
           draft: true
-          files: composeApp/build/compose/binaries/main/dmg/${{ steps.version.outputs.dmg_name }}
+          files: composeApp/build/compose/binaries/main-release/dmg/${{ steps.version.outputs.dmg_name }}
 
   Notify-Discord:
     runs-on: ubuntu-latest
