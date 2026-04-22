@@ -8,7 +8,10 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,6 +57,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -67,9 +72,13 @@ import com.cowork.app_client.feature.main.component.MainComponent
 import com.cowork.app_client.feature.main.store.MainStore
 import com.cowork.app_client.ui.theme.CoworkColors
 import com.cowork.app_client.util.decodeImageBitmap
+import com.cowork.app_client.util.horizontalResizeCursor
+import com.cowork.app_client.util.pickImageBytes
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.readRawBytes
+import kotlinx.coroutines.launch
+import org.koin.compose.koinInject
 
 private val StatusOnlineColor = Color(0xFF23A55A)
 private val StatusDndColor = Color(0xFFF23F42)
@@ -85,6 +94,9 @@ private val DndOptions = listOf(
 @Composable
 fun MainScreen(component: MainComponent) {
     val state by component.state.collectAsState()
+    val density = LocalDensity.current
+    var teamRailWidth by remember { mutableStateOf(88.dp) }
+    var channelPaneWidth by remember { mutableStateOf(280.dp) }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -94,21 +106,36 @@ fun MainScreen(component: MainComponent) {
             Row(modifier = Modifier.fillMaxSize()) {
                 TeamRail(
                     state = state,
+                    width = teamRailWidth,
                     onTeamClick = component::onTeamClick,
                     onCreateTeamClick = component::onCreateTeamClick,
                 )
 
-                VerticalDivider()
+                VerticalResizeHandle(
+                    lineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.34f),
+                    onDrag = { delta ->
+                        teamRailWidth = with(density) {
+                            (teamRailWidth + delta.toDp()).coerceIn(80.dp, 104.dp)
+                        }
+                    },
+                )
 
                 ChannelPane(
                     state = state,
-                    onReloadClick = component::onReloadClick,
+                    width = channelPaneWidth,
                     onChannelClick = component::onChannelClick,
                     onCreateChannelClick = component::onCreateChannelClick,
                     onAccountBarClick = component::onAccountMenuClick,
                 )
 
-                VerticalDivider()
+                VerticalResizeHandle(
+                    lineColor = Color.Transparent,
+                    onDrag = { delta ->
+                        channelPaneWidth = with(density) {
+                            (channelPaneWidth + delta.toDp()).coerceIn(220.dp, 420.dp)
+                        }
+                    },
+                )
 
                 WorkspacePane(state = state)
             }
@@ -129,7 +156,7 @@ fun MainScreen(component: MainComponent) {
                 visible = state.isAccountMenuOpen,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(start = 89.dp, bottom = 64.dp)
+                    .padding(start = teamRailWidth + 2.dp, bottom = 64.dp)
                     .width(280.dp),
                 enter = fadeIn(),
                 exit = fadeOut(),
@@ -138,6 +165,7 @@ fun MainScreen(component: MainComponent) {
                     state = state,
                     onStatusChange = component::onStatusChange,
                     onSignOut = component::onSignOutClick,
+                    onUploadProfileImage = component::onUploadProfileImage,
                 )
             }
 
@@ -168,13 +196,14 @@ fun MainScreen(component: MainComponent) {
 @Composable
 private fun TeamRail(
     state: MainStore.State,
+    width: Dp,
     onTeamClick: (Long) -> Unit,
     onCreateTeamClick: () -> Unit,
 ) {
     Column(
         modifier = Modifier
             .fillMaxHeight()
-            .width(88.dp)
+            .width(width)
             .background(MaterialTheme.colorScheme.surface)
             .padding(vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -248,9 +277,46 @@ private fun TeamAvatar(
 }
 
 @Composable
+private fun VerticalResizeHandle(
+    lineColor: Color,
+    onDrag: (Float) -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+
+    Box(
+        modifier = Modifier
+            .fillMaxHeight()
+            .width(6.dp)
+            .horizontalResizeCursor()
+            .hoverable(interactionSource)
+            .background(Color.Transparent)
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures { _, dragAmount ->
+                    onDrag(dragAmount)
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .width(1.dp)
+                .background(
+                    if (isHovered) {
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)
+                    } else {
+                        lineColor
+                    },
+                ),
+        )
+    }
+}
+
+@Composable
 private fun ChannelPane(
     state: MainStore.State,
-    onReloadClick: () -> Unit,
+    width: Dp,
     onChannelClick: (Long) -> Unit,
     onCreateChannelClick: () -> Unit,
     onAccountBarClick: () -> Unit,
@@ -258,8 +324,8 @@ private fun ChannelPane(
     Box(
         modifier = Modifier
             .fillMaxHeight()
-            .width(280.dp)
-            .background(MaterialTheme.colorScheme.surface),
+            .width(width)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f)),
     ) {
         Column(
             modifier = Modifier
@@ -288,9 +354,6 @@ private fun ChannelPane(
                     )
                 }
 
-                TextButton(onClick = onReloadClick) {
-                    Text("새로고침")
-                }
             }
 
             if (state.error != null) {
@@ -405,7 +468,9 @@ private fun AccountMenuCard(
     state: MainStore.State,
     onStatusChange: (UserStatus, Double?) -> Unit,
     onSignOut: () -> Unit,
+    onUploadProfileImage: (ByteArray, String) -> Unit,
 ) {
+    val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
     Surface(
         modifier = Modifier.fillMaxWidth().padding(8.dp),
         shape = RoundedCornerShape(8.dp),
@@ -440,7 +505,14 @@ private fun AccountMenuCard(
                     size = 68.dp,
                     status = state.accountStatus,
                     ringColor = MaterialTheme.colorScheme.surface,
+                    isUploading = state.isUploadingProfileImage,
                     modifier = Modifier.align(Alignment.BottomStart).padding(start = 16.dp),
+                    onEditClick = {
+                        coroutineScope.launch {
+                            val result = pickImageBytes()
+                            if (result != null) onUploadProfileImage(result.first, result.second)
+                        }
+                    },
                 )
             }
 
@@ -505,38 +577,39 @@ private fun AccountMenuCard(
             Spacer(modifier = Modifier.height(12.dp))
             HorizontalDivider()
 
-            Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
+            var isDndSelectorOpen by remember(state.accountStatus) {
+                mutableStateOf(state.accountStatus == UserStatus.DoNotDisturb)
+            }
+
+            Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
                 Text(
                     text = "상태",
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontWeight = FontWeight.Bold,
                 )
 
-                StatusOption(
+                CompactStatusOption(
                     label = "온라인",
                     status = UserStatus.Online,
                     currentStatus = state.accountStatus,
                     isLoading = state.isUpdatingStatus,
-                    onSelect = { onStatusChange(UserStatus.Online, null) },
+                    onSelect = {
+                        isDndSelectorOpen = false
+                        onStatusChange(UserStatus.Online, null)
+                    },
                 )
 
-                StatusOption(
-                    label = "방해금지",
-                    status = UserStatus.DoNotDisturb,
+                DndStatusOption(
                     currentStatus = state.accountStatus,
                     isLoading = state.isUpdatingStatus,
-                    onSelect = null,
-                )
-
-                DndExpirySelector(
-                    label = if (state.accountStatus == UserStatus.DoNotDisturb) {
-                        "만료 시간 재설정"
-                    } else {
-                        "방해금지 시간"
+                    isSelectorOpen = isDndSelectorOpen,
+                    onToggleSelector = {
+                        if (!state.isUpdatingStatus) {
+                            isDndSelectorOpen = !isDndSelectorOpen
+                        }
                     },
-                    isLoading = state.isUpdatingStatus,
                     onSelect = { hours -> onStatusChange(UserStatus.DoNotDisturb, hours) },
                 )
             }
@@ -547,13 +620,13 @@ private fun AccountMenuCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(onClick = onSignOut)
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                    .padding(horizontal = 16.dp, vertical = 9.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
                     text = "로그아웃",
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.error,
                 )
             }
@@ -569,10 +642,16 @@ private fun ProfileAvatar(
     status: UserStatus?,
     ringColor: Color,
     modifier: Modifier = Modifier,
+    isUploading: Boolean = false,
+    onEditClick: (() -> Unit)? = null,
 ) {
-    val image = rememberRemoteImageBitmap(imageUrl)
+    val httpClient = koinInject<HttpClient>()
+    val image = rememberRemoteImageBitmap(imageUrl, httpClient)
     val dotOuterSize = if (size >= 60.dp) 18.dp else 12.dp
     val dotInnerSize = if (size >= 60.dp) 12.dp else 8.dp
+
+    val editInteraction = remember { MutableInteractionSource() }
+    val isHovered by editInteraction.collectIsHoveredAsState()
 
     Box(modifier = modifier.size(size)) {
         Surface(
@@ -608,6 +687,46 @@ private fun ProfileAvatar(
             }
         }
 
+        // 편집 오버레이 (모달 아바타 전용)
+        if (onEditClick != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape)
+                    .hoverable(editInteraction)
+                    .then(
+                        if (!isUploading) Modifier.clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onEditClick,
+                        ) else Modifier
+                    )
+                    .background(
+                        when {
+                            isUploading -> Color.Black.copy(alpha = 0.45f)
+                            isHovered -> Color.Black.copy(alpha = 0.38f)
+                            else -> Color.Transparent
+                        }
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (isUploading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(size * 0.36f),
+                        strokeWidth = 2.dp,
+                        color = Color.White,
+                    )
+                } else if (isHovered) {
+                    Text(
+                        text = "변경",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
+
         if (status != null) {
             Box(
                 modifier = Modifier
@@ -629,55 +748,43 @@ private fun ProfileAvatar(
 }
 
 @Composable
-private fun rememberRemoteImageBitmap(imageUrl: String?): ImageBitmap? {
+private fun rememberRemoteImageBitmap(imageUrl: String?, httpClient: HttpClient): ImageBitmap? {
     val imageState = produceState<ImageBitmap?>(initialValue = null, key1 = imageUrl) {
         value = null
         val url = imageUrl?.takeIf { it.isNotBlank() } ?: return@produceState
-        val client = HttpClient()
-        try {
-            value = runCatching {
-                decodeImageBitmap(client.get(url).readRawBytes())
-            }.getOrNull()
-        } finally {
-            client.close()
-        }
+        value = runCatching {
+            decodeImageBitmap(httpClient.get(url).readRawBytes())
+        }.getOrNull()
     }
-
     return imageState.value
 }
 
 @Composable
-private fun StatusOption(
+private fun CompactStatusOption(
     label: String,
     status: UserStatus,
     currentStatus: UserStatus,
     isLoading: Boolean,
-    onSelect: (() -> Unit)?,
+    onSelect: () -> Unit,
 ) {
     val isSelected = currentStatus == status
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(MaterialTheme.shapes.small)
-            .then(
-                if (onSelect != null && !isLoading) Modifier.clickable(onClick = onSelect)
-                else Modifier
-            )
-            .padding(horizontal = 8.dp, vertical = 10.dp),
+            .clip(RoundedCornerShape(6.dp))
+            .then(if (!isLoading) Modifier.clickable(onClick = onSelect) else Modifier)
+            .padding(horizontal = 8.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .size(12.dp)
-                .clip(CircleShape)
-                .background(
-                    if (isSelected) status.dotColor() else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-                ),
+        StatusGlyph(
+            status = status,
+            isSelected = isSelected,
         )
         Text(
             text = label,
-            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.labelMedium,
             color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
         )
@@ -685,56 +792,120 @@ private fun StatusOption(
 }
 
 @Composable
-private fun DndExpirySelector(
-    label: String,
+private fun DndStatusOption(
+    currentStatus: UserStatus,
+    isLoading: Boolean,
+    isSelectorOpen: Boolean,
+    onToggleSelector: () -> Unit,
+    onSelect: (Double?) -> Unit,
+) {
+    val isSelected = currentStatus == UserStatus.DoNotDisturb
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(6.dp))
+            .then(if (!isLoading) Modifier.clickable(onClick = onToggleSelector) else Modifier)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        StatusGlyph(
+            status = UserStatus.DoNotDisturb,
+            isSelected = isSelected,
+        )
+        Text(
+            text = "방해금지",
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.labelMedium,
+            color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+
+        if (isSelectorOpen) {
+            InlineDndExpirySelector(
+                isLoading = isLoading,
+                onSelect = onSelect,
+            )
+        } else {
+            ChevronRight(color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun InlineDndExpirySelector(
     isLoading: Boolean,
     onSelect: (Double?) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
 
-    Column(modifier = Modifier.padding(start = 28.dp, end = 8.dp, bottom = 4.dp)) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(modifier = Modifier.height(6.dp))
-        Box {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .then(if (!isLoading) Modifier.clickable { expanded = true } else Modifier),
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.secondaryContainer.copy(
-                    alpha = if (isLoading) 0.5f else 1f,
-                ),
+    Box {
+        Surface(
+            modifier = Modifier
+                .width(104.dp)
+                .height(26.dp)
+                .then(if (!isLoading) Modifier.clickable { expanded = true } else Modifier),
+            shape = RoundedCornerShape(6.dp),
+            color = MaterialTheme.colorScheme.secondaryContainer.copy(
+                alpha = if (isLoading) 0.5f else 1f,
+            ),
+        ) {
+            Row(
+                modifier = Modifier.padding(start = 8.dp, end = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        text = "시간 선택",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    )
-                    DropdownChevron(color = MaterialTheme.colorScheme.onSecondaryContainer)
-                }
+                Text(
+                    text = "시간",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+                DropdownChevron(color = MaterialTheme.colorScheme.onSecondaryContainer)
             }
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false },
-            ) {
-                DndOptions.forEach { (labelText, hours) ->
-                    DropdownMenuItem(
-                        text = { Text(labelText) },
-                        onClick = {
-                            expanded = false
-                            onSelect(hours)
-                        },
-                    )
-                }
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            DndOptions.forEach { (labelText, hours) ->
+                DropdownMenuItem(
+                    text = { Text(labelText) },
+                    onClick = {
+                        expanded = false
+                        onSelect(hours)
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusGlyph(
+    status: UserStatus,
+    isSelected: Boolean,
+) {
+    val color = when {
+        status == UserStatus.DoNotDisturb -> StatusDndColor
+        isSelected -> status.dotColor()
+        else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.48f)
+    }
+
+    Canvas(modifier = Modifier.size(12.dp)) {
+        when (status) {
+            UserStatus.Online -> drawCircle(color = color, radius = size.minDimension / 2f)
+            UserStatus.DoNotDisturb -> {
+                drawCircle(color = color, radius = size.minDimension / 2f)
+                drawLine(
+                    color = Color.White,
+                    start = Offset(size.width * 0.28f, size.height * 0.5f),
+                    end = Offset(size.width * 0.72f, size.height * 0.5f),
+                    strokeWidth = 1.8.dp.toPx(),
+                    cap = StrokeCap.Round,
+                )
             }
         }
     }
@@ -755,6 +926,27 @@ private fun DropdownChevron(color: Color) {
             color = color,
             start = Offset(size.width * 0.72f, size.height * 0.42f),
             end = Offset(size.width * 0.5f, size.height * 0.64f),
+            strokeWidth = strokeWidth,
+            cap = StrokeCap.Round,
+        )
+    }
+}
+
+@Composable
+private fun ChevronRight(color: Color) {
+    Canvas(modifier = Modifier.size(16.dp)) {
+        val strokeWidth = 2.dp.toPx()
+        drawLine(
+            color = color,
+            start = Offset(size.width * 0.4f, size.height * 0.28f),
+            end = Offset(size.width * 0.62f, size.height * 0.5f),
+            strokeWidth = strokeWidth,
+            cap = StrokeCap.Round,
+        )
+        drawLine(
+            color = color,
+            start = Offset(size.width * 0.4f, size.height * 0.72f),
+            end = Offset(size.width * 0.62f, size.height * 0.5f),
             strokeWidth = strokeWidth,
             cap = StrokeCap.Round,
         )

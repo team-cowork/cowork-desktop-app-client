@@ -32,6 +32,7 @@ interface MainStore : Store<Intent, State, Label> {
         data object CloseAccountMenu : Intent
         data class SetStatus(val status: UserStatus, val expiresInHours: Double?) : Intent
         data object SignOut : Intent
+        data class UploadProfileImage(val bytes: ByteArray, val contentType: String) : Intent
     }
 
     data class State(
@@ -68,6 +69,7 @@ interface MainStore : Store<Intent, State, Label> {
         val accountStatus: UserStatus = UserStatus.Online,
         val isAccountMenuOpen: Boolean = false,
         val isUpdatingStatus: Boolean = false,
+        val isUploadingProfileImage: Boolean = false,
     ) {
         val selectedTeam: TeamSummary?
             get() = teams.firstOrNull { it.id == selectedTeamId }

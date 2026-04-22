@@ -64,7 +64,6 @@ class DefaultMainComponent(
         }
     }
 
-    override fun onReloadClick() = store.accept(MainStore.Intent.Reload)
     override fun onTeamClick(teamId: Long) = store.accept(MainStore.Intent.SelectTeam(teamId))
     override fun onChannelClick(channelId: Long) = store.accept(MainStore.Intent.SelectChannel(channelId))
     override fun onCreateTeamClick() = store.accept(MainStore.Intent.OpenCreateTeam)
@@ -82,4 +81,7 @@ class DefaultMainComponent(
     override fun onAccountMenuDismiss() = store.accept(MainStore.Intent.CloseAccountMenu)
     override fun onStatusChange(status: UserStatus, expiresInHours: Double?) = store.accept(MainStore.Intent.SetStatus(status, expiresInHours))
     override fun onSignOutClick() = store.accept(MainStore.Intent.SignOut)
+    override fun onUploadProfileImage(bytes: ByteArray, contentType: String) =
+        store.accept(MainStore.Intent.UploadProfileImage(bytes, contentType))
+    override fun onReloadClick() = store.accept(MainStore.Intent.Reload)
 }

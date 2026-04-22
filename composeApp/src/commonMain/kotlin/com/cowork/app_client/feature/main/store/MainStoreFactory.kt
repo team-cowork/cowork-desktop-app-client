@@ -19,6 +19,7 @@ import com.cowork.app_client.feature.main.store.MainStore.Intent
 import com.cowork.app_client.feature.main.store.MainStore.Label
 import com.cowork.app_client.feature.main.store.MainStore.State
 import com.cowork.app_client.util.parseJwtClaims
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainStoreFactory(
@@ -72,6 +73,7 @@ class MainStoreFactory(
                 Intent.CloseAccountMenu -> dispatch(Msg.SetAccountMenuOpen(false))
                 is Intent.SetStatus -> updateStatus(intent.status, intent.expiresInHours)
                 Intent.SignOut -> signOut()
+                is Intent.UploadProfileImage -> uploadProfileImage(intent.bytes, intent.contentType)
             }
         }
 
@@ -96,23 +98,37 @@ class MainStoreFactory(
                 }
             }
             loadTeams()
+            startTeamPolling()
         }
 
-        private fun loadTeams() {
+        private fun loadTeams(silent: Boolean = false) {
             scope.launch {
-                dispatch(Msg.SetLoadingTeams(true))
+                if (!silent) dispatch(Msg.SetLoadingTeams(true))
                 runCatching { teamRepository.getMyTeams() }
                     .onSuccess { teams ->
-                        val selectedTeamId = teams.firstOrNull()?.id
+                        val currentSelectedTeamId = state().selectedTeamId
+                        val selectedTeamId = when {
+                            teams.any { it.id == currentSelectedTeamId } -> currentSelectedTeamId
+                            else -> teams.firstOrNull()?.id
+                        }
                         dispatch(Msg.SetTeams(teams, selectedTeamId))
-                        if (selectedTeamId != null) {
+                        if (selectedTeamId != null && selectedTeamId != currentSelectedTeamId) {
                             loadChannels(selectedTeamId)
                         }
                     }
                     .onFailure {
-                        dispatch(Msg.SetError("팀 목록을 불러오지 못했습니다."))
+                        if (!silent) dispatch(Msg.SetError("팀 목록을 불러오지 못했습니다."))
                     }
-                dispatch(Msg.SetLoadingTeams(false))
+                if (!silent) dispatch(Msg.SetLoadingTeams(false))
+            }
+        }
+
+        private fun startTeamPolling() {
+            scope.launch {
+                while (true) {
+                    delay(30_000)
+                    loadTeams(silent = true)
+                }
             }
         }
 
@@ -226,6 +242,24 @@ class MainStoreFactory(
                 publish(Label.SignedOut)
             }
         }
+
+        private fun uploadProfileImage(bytes: ByteArray, contentType: String) {
+            if (state().isUploadingProfileImage) return
+            scope.launch {
+                dispatch(Msg.SetUploadingProfileImage(true))
+                val success = runCatching {
+                    userRepository.uploadProfileImage(bytes, contentType)
+                }.getOrDefault(false)
+
+                if (success) {
+                    val profile = runCatching { userRepository.getMyProfile() }.getOrNull()
+                    if (profile != null) dispatch(Msg.SetUserProfile(profile))
+                } else {
+                    dispatch(Msg.SetError("프로필 사진을 업로드하지 못했습니다."))
+                }
+                dispatch(Msg.SetUploadingProfileImage(false))
+            }
+        }
     }
 
     private sealed interface Msg {
@@ -254,6 +288,7 @@ class MainStoreFactory(
         data class SetAccountStatus(val status: UserStatus) : Msg
         data class SetAccountMenuOpen(val isOpen: Boolean) : Msg
         data class SetUpdatingStatus(val isUpdating: Boolean) : Msg
+        data class SetUploadingProfileImage(val isUploading: Boolean) : Msg
     }
 
     private object Reducer : com.arkivanov.mvikotlin.core.store.Reducer<State, Msg> {
@@ -319,6 +354,7 @@ class MainStoreFactory(
             is Msg.SetAccountStatus -> copy(accountStatus = msg.status)
             is Msg.SetAccountMenuOpen -> copy(isAccountMenuOpen = msg.isOpen)
             is Msg.SetUpdatingStatus -> copy(isUpdatingStatus = msg.isUpdating)
+            is Msg.SetUploadingProfileImage -> copy(isUploadingProfileImage = msg.isUploading)
         }
     }
 }

@@ -8,7 +8,6 @@ import kotlinx.coroutines.flow.StateFlow
 interface MainComponent {
     val state: StateFlow<MainStore.State>
 
-    fun onReloadClick()
     fun onTeamClick(teamId: Long)
     fun onChannelClick(channelId: Long)
     fun onCreateTeamClick()
@@ -26,4 +25,6 @@ interface MainComponent {
     fun onAccountMenuDismiss()
     fun onStatusChange(status: UserStatus, expiresInHours: Double?)
     fun onSignOutClick()
+    fun onUploadProfileImage(bytes: ByteArray, contentType: String)
+    fun onReloadClick()
 }
