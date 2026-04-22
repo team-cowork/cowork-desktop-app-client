@@ -83,7 +83,6 @@ jobs:
           security default-keychain -s "$KEYCHAIN_PATH"
 
           IDENTITIES=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH")
-          echo "$IDENTITIES"
           if ! echo "$IDENTITIES" | grep -q "Developer ID Application"; then
             echo "::error::No Developer ID Application signing identity was imported. Check MACOS_CERTIFICATE contains a .p12 with the private key and MACOS_CERTIFICATE_PWD is correct."
             exit 1
@@ -93,48 +92,24 @@ jobs:
           echo "SIGNING_KEYCHAIN=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
           rm /tmp/certificate.p12
 
-      - name: Package Release DMG
+      - name: Build Signed App
         run: |
           IDENTITY="Developer ID Application: Gwangju Software Meister High School (UB2797YAAH)"
           security unlock-keychain -p "temp_password" "$SIGNING_KEYCHAIN"
 
-          ./gradlew --no-configuration-cache :composeApp:packageReleaseDmg \
+          ./gradlew --no-configuration-cache :composeApp:createReleaseDistributable \
             -PcoworkAppVersion=${{ steps.version.outputs.app_version }} \
             -Pcompose.desktop.mac.sign=true \
             -Pcompose.desktop.mac.signing.identity="$IDENTITY" \
             -Pcompose.desktop.mac.signing.keychain="$SIGNING_KEYCHAIN"
 
-      - name: Prepare DMG
+      - name: Verify Signed App
         run: |
           APP="composeApp/build/compose/binaries/main-release/app/cowork.app"
-          DMG_DIR="composeApp/build/compose/binaries/main-release/dmg"
-          GENERATED_DMG="$DMG_DIR/cowork-${{ steps.version.outputs.app_version }}.dmg"
-          RELEASE_DMG="$DMG_DIR/${{ steps.version.outputs.dmg_name }}"
 
-          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign --verify --deep --strict "$APP"
 
-          if [ ! -f "$GENERATED_DMG" ]; then
-            echo "::error::Expected DMG was not created: $GENERATED_DMG"
-            find composeApp/build/compose/binaries -name "*.dmg" -print
-            exit 1
-          fi
-
-          if [ "$GENERATED_DMG" != "$RELEASE_DMG" ]; then
-            mv "$GENERATED_DMG" "$RELEASE_DMG"
-          fi
-
-          hdiutil verify "$RELEASE_DMG"
-
-      - name: Sign DMG
-        run: |
-          IDENTITY="Developer ID Application: Gwangju Software Meister High School (UB2797YAAH)"
-          security unlock-keychain -p "temp_password" "$SIGNING_KEYCHAIN"
-          codesign --sign "$IDENTITY" \
-            --keychain "$SIGNING_KEYCHAIN" \
-            --timestamp \
-            "composeApp/build/compose/binaries/main-release/dmg/${{ steps.version.outputs.dmg_name }}"
-
-      - name: Notarize DMG
+      - name: Notarize App Bundle
         env:
           NOTARIZATION_APPLE_ID: ${{ secrets.NOTARIZATION_APPLE_ID }}
           NOTARIZATION_PWD: ${{ secrets.NOTARIZATION_PWD }}
@@ -148,67 +123,98 @@ jobs:
             perl -e 'alarm shift; exec @ARGV' "$seconds" "$@"
           }
 
-          DMG="composeApp/build/compose/binaries/main-release/dmg/${{ steps.version.outputs.dmg_name }}"
+          APP="composeApp/build/compose/binaries/main-release/app/cowork.app"
+          APP_ZIP="composeApp/build/compose/binaries/main-release/app/cowork.app.zip"
 
-          run_with_timeout 600 xcrun notarytool submit "$DMG" \
+          ditto -c -k --keepParent "$APP" "$APP_ZIP"
+
+          run_with_timeout 600 xcrun notarytool submit "$APP_ZIP" \
             --no-s3-acceleration \
             --apple-id "$NOTARIZATION_APPLE_ID" \
             --password "$NOTARIZATION_PWD" \
             --team-id "$NOTARIZATION_TEAM_ID" \
             --output-format json \
-            | tee dmg-notarization.json
+            > app-notarization.json
 
-          DMG_NOTARIZATION_ID=$(ruby -rjson -e 'puts JSON.parse(File.read("dmg-notarization.json")).fetch("id")')
+          APP_NOTARIZATION_ID=$(ruby -rjson -e 'puts JSON.parse(File.read("app-notarization.json")).fetch("id")')
+          echo "App notarization submitted."
 
+          LAST_NOTARIZATION_STATUS=""
           for attempt in {1..90}; do
-            echo "Checking DMG notarization status, attempt ${attempt}/90"
-            if run_with_timeout 120 xcrun notarytool info "$DMG_NOTARIZATION_ID" \
+            if run_with_timeout 120 xcrun notarytool info "$APP_NOTARIZATION_ID" \
               --apple-id "$NOTARIZATION_APPLE_ID" \
               --password "$NOTARIZATION_PWD" \
               --team-id "$NOTARIZATION_TEAM_ID" \
               --output-format json \
-              > dmg-notarization-info.json; then
-              DMG_NOTARIZATION_STATUS=$(ruby -rjson -e 'puts JSON.parse(File.read("dmg-notarization-info.json")).fetch("status")')
-              echo "DMG notarization status: $DMG_NOTARIZATION_STATUS"
+              > app-notarization-info.json; then
+              APP_NOTARIZATION_STATUS=$(ruby -rjson -e 'puts JSON.parse(File.read("app-notarization-info.json")).fetch("status")')
+              if [ "$APP_NOTARIZATION_STATUS" != "$LAST_NOTARIZATION_STATUS" ] || [ $((attempt % 10)) -eq 0 ]; then
+                echo "App notarization status: $APP_NOTARIZATION_STATUS (${attempt}/90)"
+              fi
+              LAST_NOTARIZATION_STATUS="$APP_NOTARIZATION_STATUS"
 
-              if [ "$DMG_NOTARIZATION_STATUS" = "Accepted" ]; then
+              if [ "$APP_NOTARIZATION_STATUS" = "Accepted" ]; then
                 exit 0
               fi
 
-              if [ "$DMG_NOTARIZATION_STATUS" = "Invalid" ]; then
-                xcrun notarytool log "$DMG_NOTARIZATION_ID" \
+              if [ "$APP_NOTARIZATION_STATUS" = "Invalid" ]; then
+                xcrun notarytool log "$APP_NOTARIZATION_ID" \
                   --apple-id "$NOTARIZATION_APPLE_ID" \
                   --password "$NOTARIZATION_PWD" \
                   --team-id "$NOTARIZATION_TEAM_ID"
-                echo "::error::DMG notarization failed with status: $DMG_NOTARIZATION_STATUS"
+                echo "::error::App notarization failed with status: $APP_NOTARIZATION_STATUS"
                 exit 1
               fi
             else
-              echo "Failed or timed out while querying DMG notarization status. Retrying..."
+              echo "App notarization status query failed or timed out (${attempt}/90)."
             fi
 
             sleep 20
           done
 
-          echo "::error::Timed out waiting for DMG notarization result."
+          echo "::error::Timed out waiting for app notarization result."
           exit 1
 
-      - name: Staple Notarization Ticket
+      - name: Staple App Bundle
         run: |
-          DMG="composeApp/build/compose/binaries/main-release/dmg/${{ steps.version.outputs.dmg_name }}"
+          APP="composeApp/build/compose/binaries/main-release/app/cowork.app"
 
           for attempt in {1..10}; do
-            echo "Stapling DMG notarization ticket, attempt ${attempt}/10"
-            if xcrun stapler staple -v "$DMG"; then
-              xcrun stapler validate -v "$DMG"
+            if xcrun stapler staple "$APP"; then
+              xcrun stapler validate "$APP"
+              spctl --assess --type execute --verbose "$APP"
               exit 0
             fi
 
-            echo "DMG notarization ticket is not available yet. Waiting 30 seconds..."
             sleep 30
           done
 
-          echo "::warning::Failed to staple DMG notarization ticket after 10 attempts. The DMG notarization was accepted, but offline Gatekeeper validation can still require a stapled ticket."
+          echo "::error::Failed to staple app notarization ticket after 10 attempts."
+          exit 1
+
+      - name: Create Stapled App DMG
+        run: |
+          APP="composeApp/build/compose/binaries/main-release/app/cowork.app"
+          DMG_DIR="composeApp/build/compose/binaries/main-release/dmg"
+          RELEASE_DMG="$DMG_DIR/${{ steps.version.outputs.dmg_name }}"
+
+          mkdir -p "$DMG_DIR"
+          hdiutil create -volname "cowork" \
+            -srcfolder "$APP" \
+            -ov -format UDZO \
+            "$RELEASE_DMG"
+          hdiutil verify "$RELEASE_DMG"
+
+      - name: Sign DMG
+        run: |
+          IDENTITY="Developer ID Application: Gwangju Software Meister High School (UB2797YAAH)"
+          DMG="composeApp/build/compose/binaries/main-release/dmg/${{ steps.version.outputs.dmg_name }}"
+
+          security unlock-keychain -p "temp_password" "$SIGNING_KEYCHAIN"
+          codesign --sign "$IDENTITY" \
+            --keychain "$SIGNING_KEYCHAIN" \
+            --timestamp \
+            "$DMG"
 
       - name: Create Tag
         run: git tag ${{ steps.version.outputs.tag }}
