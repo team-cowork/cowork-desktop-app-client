@@ -90,62 +90,77 @@ fun MainScreen(component: MainComponent) {
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
     ) {
-        Row(modifier = Modifier.fillMaxSize()) {
-            TeamRail(
-                state = state,
-                onTeamClick = component::onTeamClick,
-                onCreateTeamClick = component::onCreateTeamClick,
-            )
+        Box(modifier = Modifier.fillMaxSize()) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                TeamRail(
+                    state = state,
+                    onTeamClick = component::onTeamClick,
+                    onCreateTeamClick = component::onCreateTeamClick,
+                )
 
-            VerticalDivider()
+                VerticalDivider()
 
-            ChannelPane(
-                state = state,
-                onReloadClick = component::onReloadClick,
-                onChannelClick = component::onChannelClick,
-                onCreateChannelClick = component::onCreateChannelClick,
-                onAccountBarClick = component::onAccountMenuClick,
-                onAccountMenuDismiss = component::onAccountMenuDismiss,
-                onStatusChange = component::onStatusChange,
-                onSignOut = component::onSignOutClick,
-            )
+                ChannelPane(
+                    state = state,
+                    onReloadClick = component::onReloadClick,
+                    onChannelClick = component::onChannelClick,
+                    onCreateChannelClick = component::onCreateChannelClick,
+                    onAccountBarClick = component::onAccountMenuClick,
+                )
 
-            VerticalDivider()
+                VerticalDivider()
 
-            WorkspacePane(state = state)
-        }
+                WorkspacePane(state = state)
+            }
 
-        if (state.isAccountMenuOpen) {
-            Box(
+            if (state.isAccountMenuOpen) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = component::onAccountMenuDismiss,
+                        ),
+                )
+            }
+
+            AnimatedVisibility(
+                visible = state.isAccountMenuOpen,
                 modifier = Modifier
-                    .fillMaxSize()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = component::onAccountMenuDismiss,
-                    ),
-            )
-        }
+                    .align(Alignment.BottomStart)
+                    .padding(start = 89.dp, bottom = 64.dp)
+                    .width(280.dp),
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                AccountMenuCard(
+                    state = state,
+                    onStatusChange = component::onStatusChange,
+                    onSignOut = component::onSignOutClick,
+                )
+            }
 
-        if (state.isCreateTeamOpen) {
-            CreateTeamDialog(
-                state = state,
-                onDismiss = component::onCreateTeamDismiss,
-                onNameChange = component::onCreateTeamNameChange,
-                onDescriptionChange = component::onCreateTeamDescriptionChange,
-                onSubmit = component::onCreateTeamSubmit,
-            )
-        }
+            if (state.isCreateTeamOpen) {
+                CreateTeamDialog(
+                    state = state,
+                    onDismiss = component::onCreateTeamDismiss,
+                    onNameChange = component::onCreateTeamNameChange,
+                    onDescriptionChange = component::onCreateTeamDescriptionChange,
+                    onSubmit = component::onCreateTeamSubmit,
+                )
+            }
 
-        if (state.isCreateChannelOpen) {
-            CreateChannelDialog(
-                state = state,
-                onDismiss = component::onCreateChannelDismiss,
-                onNameChange = component::onCreateChannelNameChange,
-                onNoticeChange = component::onCreateChannelNoticeChange,
-                onTypeChange = component::onCreateChannelTypeChange,
-                onSubmit = component::onCreateChannelSubmit,
-            )
+            if (state.isCreateChannelOpen) {
+                CreateChannelDialog(
+                    state = state,
+                    onDismiss = component::onCreateChannelDismiss,
+                    onNameChange = component::onCreateChannelNameChange,
+                    onNoticeChange = component::onCreateChannelNoticeChange,
+                    onTypeChange = component::onCreateChannelTypeChange,
+                    onSubmit = component::onCreateChannelSubmit,
+                )
+            }
         }
     }
 }
@@ -239,9 +254,6 @@ private fun ChannelPane(
     onChannelClick: (Long) -> Unit,
     onCreateChannelClick: () -> Unit,
     onAccountBarClick: () -> Unit,
-    onAccountMenuDismiss: () -> Unit,
-    onStatusChange: (UserStatus, Double?) -> Unit,
-    onSignOut: () -> Unit,
 ) {
     Box(
         modifier = Modifier
@@ -332,20 +344,6 @@ private fun ChannelPane(
                     }
                 }
             }
-        }
-
-        // 계정 메뉴 팝업 (채널 목록 위에 오버레이)
-        AnimatedVisibility(
-            visible = state.isAccountMenuOpen,
-            modifier = Modifier.align(Alignment.BottomStart).padding(bottom = 64.dp),
-            enter = fadeIn(),
-            exit = fadeOut(),
-        ) {
-            AccountMenuCard(
-                state = state,
-                onStatusChange = onStatusChange,
-                onSignOut = onSignOut,
-            )
         }
 
         // 계정 바 (하단 고정)
