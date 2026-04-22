@@ -30,11 +30,20 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Article
+import androidx.compose.material.icons.automirrored.rounded.HelpOutline
+import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -60,6 +69,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.input.pointer.pointerInput
@@ -667,15 +677,26 @@ private fun AccountMenuCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text(
-                        text = "로그아웃",
+                    Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
                             .clickable(onClick = onSignOut)
-                            .padding(horizontal = 2.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.error,
-                    )
+                            .padding(horizontal = 6.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.Logout,
+                            contentDescription = null,
+                            modifier = Modifier.size(15.dp),
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                        Text(
+                            text = "로그아웃",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                     Spacer(modifier = Modifier.weight(1f))
                     SettingsIconButton(onClick = onSettingsClick)
                 }
@@ -1091,11 +1112,11 @@ private fun ChannelRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(
-            text = channel.type.prefix(),
-            color = CoworkColors.Red700,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Bold,
+        Icon(
+            imageVector = channel.type.icon(),
+            contentDescription = channel.type.label(),
+            modifier = Modifier.size(17.dp),
+            tint = CoworkColors.Red700,
         )
         Text(
             text = channel.name,
@@ -1274,14 +1295,17 @@ private fun SettingsDialog(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 SettingsSection(
+                    icon = Icons.Rounded.Person,
                     title = "계정",
                     description = "프로필, 상태, GitHub 정보를 이 화면에서 다룰 예정입니다.",
                 )
                 SettingsSection(
+                    icon = Icons.Rounded.Notifications,
                     title = "알림",
                     description = "방해금지 시간과 데스크톱 알림 정책을 이어서 연결합니다.",
                 )
                 SettingsSection(
+                    icon = Icons.Rounded.Tune,
                     title = "화면",
                     description = "사이드바 폭, 테마, 창 동작 같은 클라이언트 설정을 관리합니다.",
                 )
@@ -1292,25 +1316,50 @@ private fun SettingsDialog(
 
 @Composable
 private fun SettingsSection(
+    icon: ImageVector,
     title: String,
     description: String,
 ) {
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(modifier = Modifier.height(3.dp))
-        Text(
-            text = description,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(17.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(modifier = Modifier.height(3.dp))
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Icon(
+            imageVector = Icons.Rounded.ChevronRight,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp).padding(top = 2.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
         )
     }
 }
@@ -1323,41 +1372,123 @@ private fun CreateTeamDialog(
     onDescriptionChange: (String) -> Unit,
     onSubmit: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("팀 생성") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = state.createTeamName,
-                    onValueChange = onNameChange,
-                    modifier = Modifier.widthIn(min = 320.dp),
-                    singleLine = true,
-                    label = { Text("팀 이름") },
-                )
-                OutlinedTextField(
-                    value = state.createTeamDescription,
-                    onValueChange = onDescriptionChange,
-                    modifier = Modifier.widthIn(min = 320.dp),
-                    minLines = 3,
-                    label = { Text("설명") },
-                )
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 32.dp,
+        ) {
+            Column(modifier = Modifier.width(440.dp)) {
+                // 그라디언트 헤더
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(130.dp)
+                        .background(
+                            Brush.linearGradient(
+                                listOf(
+                                    MaterialTheme.colorScheme.primary,
+                                    CoworkColors.Red700,
+                                )
+                            )
+                        ),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(10.dp)
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.15f))
+                            .clickable(onClick = onDismiss),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = "닫기",
+                            modifier = Modifier.size(16.dp),
+                            tint = Color.White,
+                        )
+                    }
+                    Column(
+                        modifier = Modifier.align(Alignment.Center),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Image(
+                            painter = painterResource(Res.drawable.logo_cowork),
+                            contentDescription = null,
+                            modifier = Modifier.size(40.dp),
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "새 팀 만들기",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                        )
+                    }
+                }
+
+                // 폼 바디
+                Column(modifier = Modifier.padding(horizontal = 28.dp, vertical = 24.dp)) {
+                    Text(
+                        text = "팀 이름",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        letterSpacing = 0.8.sp,
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    DialogTextField(
+                        value = state.createTeamName,
+                        onValueChange = onNameChange,
+                        placeholder = "예: 백엔드팀",
+                        singleLine = true,
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = "설명 (선택)",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        letterSpacing = 0.8.sp,
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    DialogTextField(
+                        value = state.createTeamDescription,
+                        onValueChange = onDescriptionChange,
+                        placeholder = "팀에 대한 간단한 설명",
+                        minLines = 3,
+                    )
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    Button(
+                        onClick = onSubmit,
+                        enabled = state.canSubmitTeam,
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        shape = RoundedCornerShape(8.dp),
+                    ) {
+                        if (state.isCreatingTeam) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                        } else {
+                            Text(
+                                "팀 만들기",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                }
             }
-        },
-        confirmButton = {
-            Button(
-                onClick = onSubmit,
-                enabled = state.canSubmitTeam,
-            ) {
-                Text(if (state.isCreatingTeam) "생성 중" else "생성")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("취소")
-            }
-        },
-    )
+        }
+    }
 }
 
 @Composable
@@ -1369,14 +1500,71 @@ private fun CreateChannelDialog(
     onTypeChange: (ChannelType) -> Unit,
     onSubmit: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("채널 생성") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 32.dp,
+        ) {
+            Column(modifier = Modifier.width(440.dp)) {
+                // 그라디언트 헤더
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(110.dp)
+                        .background(
+                            Brush.linearGradient(
+                                listOf(
+                                    MaterialTheme.colorScheme.secondary,
+                                    MaterialTheme.colorScheme.primary,
+                                )
+                            )
+                        ),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(10.dp)
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.15f))
+                            .clickable(onClick = onDismiss),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = "닫기",
+                            modifier = Modifier.size(16.dp),
+                            tint = Color.White,
+                        )
+                    }
+                    Column(
+                        modifier = Modifier.align(Alignment.Center),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            text = "채널 유형 선택",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White.copy(alpha = 0.75f),
+                            letterSpacing = 1.sp,
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "새 채널 만들기",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                        )
+                    }
+                }
+
+                // 채널 유형 탭
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     listOf(
                         ChannelType.Text,
@@ -1392,33 +1580,104 @@ private fun CreateChannelDialog(
                     }
                 }
 
-                OutlinedTextField(
-                    value = state.createChannelName,
-                    onValueChange = onNameChange,
-                    modifier = Modifier.widthIn(min = 360.dp),
-                    singleLine = true,
-                    label = { Text("채널 이름") },
-                )
-                OutlinedTextField(
-                    value = state.createChannelNotice,
-                    onValueChange = onNoticeChange,
-                    modifier = Modifier.widthIn(min = 360.dp),
-                    minLines = 3,
-                    label = { Text("공지") },
-                )
+                // 폼 바디
+                Column(modifier = Modifier.padding(horizontal = 28.dp, vertical = 20.dp)) {
+                    Text(
+                        text = "채널 이름",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        letterSpacing = 0.8.sp,
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    DialogTextField(
+                        value = state.createChannelName,
+                        onValueChange = onNameChange,
+                        placeholder = "예: 일반",
+                        singleLine = true,
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = "공지 (선택)",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        letterSpacing = 0.8.sp,
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    DialogTextField(
+                        value = state.createChannelNotice,
+                        onValueChange = onNoticeChange,
+                        placeholder = "채널 상단에 표시될 공지 내용",
+                        minLines = 3,
+                    )
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    Button(
+                        onClick = onSubmit,
+                        enabled = state.canSubmitChannel,
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        shape = RoundedCornerShape(8.dp),
+                    ) {
+                        if (state.isCreatingChannel) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                        } else {
+                            Text(
+                                "채널 만들기",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                }
             }
-        },
-        confirmButton = {
-            Button(
-                onClick = onSubmit,
-                enabled = state.canSubmitChannel,
+        }
+    }
+}
+
+@Composable
+private fun DialogTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    singleLine: Boolean = false,
+    minLines: Int = 1,
+) {
+    val textColor = MaterialTheme.colorScheme.onSurface
+    val placeholderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+    val bgColor = MaterialTheme.colorScheme.surfaceVariant
+
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        singleLine = singleLine,
+        minLines = minLines,
+        textStyle = MaterialTheme.typography.bodyMedium.copy(color = textColor),
+        cursorBrush = Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.primary)),
+        modifier = Modifier.fillMaxWidth(),
+        decorationBox = { inner ->
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(bgColor)
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
             ) {
-                Text(if (state.isCreatingChannel) "생성 중" else "생성")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("취소")
+                if (value.isEmpty()) {
+                    Text(
+                        text = placeholder,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = placeholderColor,
+                    )
+                }
+                inner()
             }
         },
     )
@@ -1441,17 +1700,28 @@ private fun TypeButton(
         MaterialTheme.colorScheme.onPrimaryContainer
     }
 
-    Text(
-        text = type.label(),
+    Row(
         modifier = Modifier
             .clip(MaterialTheme.shapes.small)
             .background(background)
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 8.dp),
-        color = foreground,
-        style = MaterialTheme.typography.labelMedium,
-        fontWeight = FontWeight.Bold,
-    )
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            imageVector = type.icon(),
+            contentDescription = null,
+            modifier = Modifier.size(15.dp),
+            tint = foreground,
+        )
+        Text(
+            text = type.label(),
+            color = foreground,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+        )
+    }
 }
 
 private fun MainStore.State.accountDisplayName(): String =
@@ -1480,12 +1750,12 @@ private fun TeamRole.label(): String = when (this) {
     TeamRole.Unknown -> "UNKNOWN"
 }
 
-private fun ChannelType.prefix(): String = when (this) {
-    ChannelType.Text -> "#"
-    ChannelType.Voice -> "음성"
-    ChannelType.Webhook -> "훅"
-    ChannelType.MeetingNote -> "회의"
-    ChannelType.Unknown -> "?"
+private fun ChannelType.icon(): ImageVector = when (this) {
+    ChannelType.Text -> Icons.Rounded.ChatBubble
+    ChannelType.Voice -> Icons.AutoMirrored.Rounded.VolumeUp
+    ChannelType.Webhook -> Icons.Rounded.Link
+    ChannelType.MeetingNote -> Icons.AutoMirrored.Rounded.Article
+    ChannelType.Unknown -> Icons.AutoMirrored.Rounded.HelpOutline
 }
 
 private fun ChannelType.label(): String = when (this) {
