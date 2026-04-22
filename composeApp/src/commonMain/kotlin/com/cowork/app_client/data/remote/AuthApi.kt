@@ -18,7 +18,7 @@ class AuthApi(
     private val baseUrl: String,
 ) {
     suspend fun exchangeAuthorizationCode(authorizationCode: OAuthAuthorizationCode): AuthTokens {
-        val body = client.post("$baseUrl/auth/exchange") {
+        val body = client.post("$baseUrl/auth/token") {
             contentType(ContentType.Application.Json)
             setBody(
                 AuthorizationCodeExchangeRequest(
