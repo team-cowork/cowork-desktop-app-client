@@ -12,6 +12,7 @@ import java.net.URLEncoder
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
+import java.util.UUID
 
 private const val CALLBACK_PORT = 19420
 private const val TIMEOUT_MS = 5L * 60 * 1000
@@ -21,7 +22,7 @@ private const val REDIRECT_URI_ENV = "COWORK_OAUTH_REDIRECT_URI"
 class DesktopOAuthLauncher : OAuthLauncher {
     override suspend fun launch(signInUrl: String): OAuthAuthorizationCode? {
         val redirectUri = resolveRedirectUri()
-        val state = generateCodeVerifier()
+        val state = UUID.randomUUID().toString()
         val codeVerifier = generateCodeVerifier()
         val codeChallenge = generateCodeChallenge(codeVerifier)
         val fullSignInUrl = buildSignInUrl(
@@ -216,8 +217,10 @@ class DesktopOAuthLauncher : OAuthLauncher {
 
     private fun isPackagedMacApplication(): Boolean {
         val osName = System.getProperty("os.name").lowercase()
-        val javaHome = System.getProperty("java.home")
-        return osName.contains("mac") && ".app/Contents" in javaHome
+        if (!osName.contains("mac")) return false
+        val javaHome = System.getProperty("java.home") ?: return false
+
+        return "runtime/Contents/Home" in javaHome
     }
 
     private fun parseParams(rawQuery: String?): Map<String, String> {

@@ -45,6 +45,7 @@ import org.koin.core.context.startKoin
 import java.awt.Dimension
 import java.awt.Frame
 import javax.swing.JFrame
+import javax.swing.SwingUtilities
 
 fun main(args: Array<String>) {
     DesktopOAuthCallbackRegistry.acceptLaunchArgs(args)
@@ -58,15 +59,18 @@ fun main(args: Array<String>) {
     }.koin
 
     val lifecycle = LifecycleRegistry()
-    val root = DefaultRootComponent(
-        componentContext = DefaultComponentContext(lifecycle),
-        storeFactory = DefaultStoreFactory(),
-        authRepository = koin.get<AuthRepository>(),
-        teamRepository = koin.get<TeamRepository>(),
-        channelRepository = koin.get<ChannelRepository>(),
-        chatRepository = koin.get<ChatRepository>(),
-        oAuthLauncher = koin.get<OAuthLauncher>(),
-    )
+    lateinit var root: DefaultRootComponent
+    SwingUtilities.invokeAndWait {
+        root = DefaultRootComponent(
+            componentContext = DefaultComponentContext(lifecycle),
+            storeFactory = DefaultStoreFactory(),
+            authRepository = koin.get<AuthRepository>(),
+            teamRepository = koin.get<TeamRepository>(),
+            channelRepository = koin.get<ChannelRepository>(),
+            chatRepository = koin.get<ChatRepository>(),
+            oAuthLauncher = koin.get<OAuthLauncher>(),
+        )
+    }
 
     application {
         val windowState = rememberWindowState(width = 1280.dp, height = 800.dp)
