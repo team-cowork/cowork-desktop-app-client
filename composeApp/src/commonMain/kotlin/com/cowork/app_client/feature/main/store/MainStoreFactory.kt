@@ -71,6 +71,8 @@ class MainStoreFactory(
                 Intent.OpenAccountMenu -> dispatch(Msg.SetAccountMenuOpen(true))
                 Intent.ToggleAccountMenu -> dispatch(Msg.SetAccountMenuOpen(!state().isAccountMenuOpen))
                 Intent.CloseAccountMenu -> dispatch(Msg.SetAccountMenuOpen(false))
+                Intent.OpenSettings -> dispatch(Msg.SetSettingsOpen(true))
+                Intent.CloseSettings -> dispatch(Msg.SetSettingsOpen(false))
                 is Intent.SetStatus -> updateStatus(intent.status, intent.expiresInHours)
                 Intent.SignOut -> signOut()
                 is Intent.UploadProfileImage -> uploadProfileImage(intent.bytes, intent.contentType)
@@ -287,6 +289,7 @@ class MainStoreFactory(
         data class SetUserProfile(val profile: com.cowork.app_client.domain.model.UserProfile) : Msg
         data class SetAccountStatus(val status: UserStatus) : Msg
         data class SetAccountMenuOpen(val isOpen: Boolean) : Msg
+        data class SetSettingsOpen(val isOpen: Boolean) : Msg
         data class SetUpdatingStatus(val isUpdating: Boolean) : Msg
         data class SetUploadingProfileImage(val isUploading: Boolean) : Msg
     }
@@ -353,6 +356,7 @@ class MainStoreFactory(
             )
             is Msg.SetAccountStatus -> copy(accountStatus = msg.status)
             is Msg.SetAccountMenuOpen -> copy(isAccountMenuOpen = msg.isOpen)
+            is Msg.SetSettingsOpen -> copy(isSettingsOpen = msg.isOpen, isAccountMenuOpen = false)
             is Msg.SetUpdatingStatus -> copy(isUpdatingStatus = msg.isUpdating)
             is Msg.SetUploadingProfileImage -> copy(isUploadingProfileImage = msg.isUploading)
         }

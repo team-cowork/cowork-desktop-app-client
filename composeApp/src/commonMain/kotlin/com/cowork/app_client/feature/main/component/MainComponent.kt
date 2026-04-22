@@ -25,6 +25,8 @@ interface MainComponent {
     fun onCreateChannelSubmit()
     fun onAccountMenuClick()
     fun onAccountMenuDismiss()
+    fun onSettingsClick()
+    fun onSettingsDismiss()
     fun onStatusChange(status: UserStatus, expiresInHours: Double?)
     fun onSignOutClick()
     fun onUploadProfileImage(bytes: ByteArray, contentType: String)

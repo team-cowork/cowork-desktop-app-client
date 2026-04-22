@@ -30,6 +30,8 @@ interface MainStore : Store<Intent, State, Label> {
         data object OpenAccountMenu : Intent
         data object ToggleAccountMenu : Intent
         data object CloseAccountMenu : Intent
+        data object OpenSettings : Intent
+        data object CloseSettings : Intent
         data class SetStatus(val status: UserStatus, val expiresInHours: Double?) : Intent
         data object SignOut : Intent
         data class UploadProfileImage(val bytes: ByteArray, val contentType: String) : Intent
@@ -68,6 +70,7 @@ interface MainStore : Store<Intent, State, Label> {
         val accountRoles: List<String> = emptyList(),
         val accountStatus: UserStatus = UserStatus.Online,
         val isAccountMenuOpen: Boolean = false,
+        val isSettingsOpen: Boolean = false,
         val isUpdatingStatus: Boolean = false,
         val isUploadingProfileImage: Boolean = false,
     ) {

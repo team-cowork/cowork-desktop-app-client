@@ -81,6 +81,8 @@ class DefaultMainComponent(
     override fun onCreateChannelSubmit() = store.accept(MainStore.Intent.SubmitCreateChannel)
     override fun onAccountMenuClick() = store.accept(MainStore.Intent.ToggleAccountMenu)
     override fun onAccountMenuDismiss() = store.accept(MainStore.Intent.CloseAccountMenu)
+    override fun onSettingsClick() = store.accept(MainStore.Intent.OpenSettings)
+    override fun onSettingsDismiss() = store.accept(MainStore.Intent.CloseSettings)
     override fun onStatusChange(status: UserStatus, expiresInHours: Double?) = store.accept(MainStore.Intent.SetStatus(status, expiresInHours))
     override fun onSignOutClick() = store.accept(MainStore.Intent.SignOut)
     override fun onUploadProfileImage(bytes: ByteArray, contentType: String) =

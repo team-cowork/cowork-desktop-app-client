@@ -30,10 +30,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -62,6 +67,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import com.cowork.app_client.domain.model.Channel
 import com.cowork.app_client.domain.model.ChannelType
 import com.cowork.app_client.domain.model.TeamRole
@@ -77,6 +83,9 @@ import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.readRawBytes
 import kotlinx.coroutines.launch
+import coworkappclient.composeapp.generated.resources.Res
+import coworkappclient.composeapp.generated.resources.logo_cowork
+import org.jetbrains.compose.resources.painterResource
 import org.koin.compose.koinInject
 
 private val StatusOnlineColor = Color(0xFF23A55A)
@@ -172,6 +181,7 @@ fun MainScreen(component: MainComponent) {
             ) {
                 AccountMenuCard(
                     state = state,
+                    onSettingsClick = component::onSettingsClick,
                     onStatusChange = component::onStatusChange,
                     onSignOut = component::onSignOutClick,
                     onUploadProfileImage = component::onUploadProfileImage,
@@ -196,6 +206,13 @@ fun MainScreen(component: MainComponent) {
                     onNoticeChange = component::onCreateChannelNoticeChange,
                     onTypeChange = component::onCreateChannelTypeChange,
                     onSubmit = component::onCreateChannelSubmit,
+                )
+            }
+
+            if (state.isSettingsOpen) {
+                SettingsDialog(
+                    state = state,
+                    onDismiss = component::onSettingsDismiss,
                 )
             }
         }
@@ -263,71 +280,22 @@ private fun AddTeamButton(onClick: () -> Unit) {
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(modifier = Modifier.size(14.dp)) {
-            val stroke = androidx.compose.ui.graphics.drawscope.Stroke(
-                width = 2.dp.toPx(),
-                cap = StrokeCap.Round,
-            )
-            val cx = size.width / 2f
-            val cy = size.height / 2f
-            val arm = size.minDimension * 0.42f
-            val green = androidx.compose.ui.graphics.Color(0xFF23A55A)
-            drawLine(
-                color = green,
-                start = Offset(cx - arm, cy),
-                end = Offset(cx + arm, cy),
-                strokeWidth = stroke.width,
-                cap = stroke.cap,
-            )
-            drawLine(
-                color = green,
-                start = Offset(cx, cy - arm),
-                end = Offset(cx, cy + arm),
-                strokeWidth = stroke.width,
-                cap = stroke.cap,
-            )
-        }
+        Icon(
+            imageVector = Icons.Rounded.Add,
+            contentDescription = "팀 추가",
+            modifier = Modifier.size(19.dp),
+            tint = Color(0xFF23A55A),
+        )
     }
 }
 
 @Composable
 private fun CoworkLogoIcon() {
-    val primary = MaterialTheme.colorScheme.primary
-    val onPrimary = MaterialTheme.colorScheme.onPrimary
-    Box(
-        modifier = Modifier
-            .size(36.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(
-                Brush.linearGradient(
-                    listOf(primary, CoworkColors.Red700),
-                )
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Canvas(modifier = Modifier.size(20.dp)) {
-            val w = size.width
-            val h = size.height
-            val stroke = androidx.compose.ui.graphics.drawscope.Stroke(
-                width = 2.2.dp.toPx(),
-                cap = StrokeCap.Round,
-            )
-            // "C" arc: ~240° arc leaving a gap on the right
-            drawArc(
-                color = onPrimary,
-                startAngle = 45f,
-                sweepAngle = 270f,
-                useCenter = false,
-                style = stroke,
-            )
-            // small dot to the right of the gap, representing "W" node
-            drawCircle(
-                color = onPrimary,
-                radius = 2.dp.toPx(),
-                center = Offset(w * 0.82f, h * 0.5f),
-            )
-        }
-    }
+    Image(
+        painter = painterResource(Res.drawable.logo_cowork),
+        contentDescription = "CoWork",
+        modifier = Modifier.size(36.dp),
+    )
 }
 
 @Composable
@@ -463,7 +431,7 @@ private fun ChannelPane(
             }
 
             when {
-                state.selectedTeamId == null -> EmptyPaneText("왼쪽 아래 + 버튼으로 팀을 생성하세요.")
+                state.selectedTeamId == null -> EmptyPaneText("왼쪽 + 버튼으로 팀을 생성하세요.")
                 state.isLoadingChannels -> Box(
                     modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
                     contentAlignment = Alignment.Center,
@@ -540,6 +508,7 @@ private fun AccountBar(
 @Composable
 private fun AccountMenuCard(
     state: MainStore.State,
+    onSettingsClick: () -> Unit,
     onStatusChange: (UserStatus, Double?) -> Unit,
     onSignOut: () -> Unit,
     onUploadProfileImage: (ByteArray, String) -> Unit,
@@ -553,7 +522,7 @@ private fun AccountMenuCard(
         Surface(
             modifier = Modifier.width(280.dp).padding(8.dp),
             shape = RoundedCornerShape(8.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+            color = MaterialTheme.colorScheme.surfaceVariant,
             border = BorderStroke(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f),
@@ -593,6 +562,7 @@ private fun AccountMenuCard(
                             }
                         },
                     )
+
                 }
 
                 Column(modifier = Modifier.padding(horizontal = 16.dp)) {
@@ -693,16 +663,21 @@ private fun AccountMenuCard(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable(onClick = onSignOut)
                         .padding(horizontal = 16.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
                         text = "로그아웃",
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable(onClick = onSignOut)
+                            .padding(horizontal = 2.dp, vertical = 4.dp),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.error,
                     )
+                    Spacer(modifier = Modifier.weight(1f))
+                    SettingsIconButton(onClick = onSettingsClick)
                 }
             }
         }
@@ -848,6 +823,53 @@ private fun rememberRemoteImageBitmap(imageUrl: String?, httpClient: HttpClient)
 }
 
 @Composable
+private fun SettingsIconButton(
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+
+    Box(
+        modifier = modifier
+            .size(24.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(
+                if (isHovered) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                else Color.Transparent,
+            )
+            .hoverable(interactionSource)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        SettingsIcon(
+            color = if (isHovered) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
+    }
+}
+
+@Composable
+private fun SettingsIcon(
+    color: Color,
+    modifier: Modifier = Modifier.size(15.dp),
+) {
+    Icon(
+        imageVector = Icons.Rounded.Settings,
+        contentDescription = null,
+        modifier = modifier,
+        tint = color,
+    )
+}
+
+@Composable
 private fun CompactStatusOption(
     label: String,
     status: UserStatus,
@@ -930,7 +952,7 @@ private fun DndExpiryFlyout(
     Surface(
         modifier = modifier.width(142.dp),
         shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.94f),
+        color = MaterialTheme.colorScheme.surfaceVariant,
         border = BorderStroke(
             width = 1.dp,
             color = MaterialTheme.colorScheme.outline.copy(alpha = 0.24f),
@@ -964,11 +986,32 @@ private fun DndExpiryOption(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+    val optionBackground = when {
+        !enabled -> Color.Transparent
+        isHovered -> MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+        else -> Color.Transparent
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(6.dp))
-            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+            .background(optionBackground)
+            .then(
+                if (enabled) {
+                    Modifier
+                        .hoverable(interactionSource)
+                        .clickable(
+                            interactionSource = interactionSource,
+                            indication = null,
+                            onClick = onClick,
+                        )
+                } else {
+                    Modifier
+                },
+            )
             .padding(horizontal = 8.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1018,23 +1061,12 @@ private fun StatusGlyph(
 
 @Composable
 private fun ChevronRight(color: Color) {
-    Canvas(modifier = Modifier.size(16.dp)) {
-        val strokeWidth = 2.dp.toPx()
-        drawLine(
-            color = color,
-            start = Offset(size.width * 0.4f, size.height * 0.28f),
-            end = Offset(size.width * 0.62f, size.height * 0.5f),
-            strokeWidth = strokeWidth,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            color = color,
-            start = Offset(size.width * 0.4f, size.height * 0.72f),
-            end = Offset(size.width * 0.62f, size.height * 0.5f),
-            strokeWidth = strokeWidth,
-            cap = StrokeCap.Round,
-        )
-    }
+    Icon(
+        imageVector = Icons.Rounded.ChevronRight,
+        contentDescription = null,
+        modifier = Modifier.size(16.dp),
+        tint = color,
+    )
 }
 
 @Composable
@@ -1188,6 +1220,99 @@ private fun EmptyPaneText(text: String) {
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+}
+
+@Composable
+private fun SettingsDialog(
+    state: MainStore.State,
+    onDismiss: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier.widthIn(min = 440.dp, max = 520.dp),
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.20f),
+            ),
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp,
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    SettingsIcon(
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "설정",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = state.accountDisplayName(),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    TextButton(onClick = onDismiss) {
+                        Text("닫기")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.16f))
+                Spacer(modifier = Modifier.height(14.dp))
+
+                SettingsSection(
+                    title = "계정",
+                    description = "프로필, 상태, GitHub 정보를 이 화면에서 다룰 예정입니다.",
+                )
+                SettingsSection(
+                    title = "알림",
+                    description = "방해금지 시간과 데스크톱 알림 정책을 이어서 연결합니다.",
+                )
+                SettingsSection(
+                    title = "화면",
+                    description = "사이드바 폭, 테마, 창 동작 같은 클라이언트 설정을 관리합니다.",
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsSection(
+    title: String,
+    description: String,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(modifier = Modifier.height(3.dp))
+        Text(
+            text = description,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
 
 @Composable
