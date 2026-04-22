@@ -172,24 +172,48 @@ jobs:
           APP_ZIP="composeApp/build/compose/binaries/main/app/cowork.app.zip"
 
           ditto -c -k --keepParent "$APP" "$APP_ZIP"
+
           xcrun notarytool submit "$APP_ZIP" \
             --apple-id "$NOTARIZATION_APPLE_ID" \
             --password "$NOTARIZATION_PWD" \
             --team-id "$NOTARIZATION_TEAM_ID" \
-            --wait \
             --output-format json \
             | tee app-notarization.json
 
           APP_NOTARIZATION_ID=$(ruby -rjson -e 'puts JSON.parse(File.read("app-notarization.json")).fetch("id")')
-          APP_NOTARIZATION_STATUS=$(ruby -rjson -e 'puts JSON.parse(File.read("app-notarization.json")).fetch("status")')
-          if [ "$APP_NOTARIZATION_STATUS" != "Accepted" ]; then
-            xcrun notarytool log "$APP_NOTARIZATION_ID" \
+
+          for attempt in {1..90}; do
+            echo "Checking app notarization status, attempt ${attempt}/90"
+            if xcrun notarytool info "$APP_NOTARIZATION_ID" \
               --apple-id "$NOTARIZATION_APPLE_ID" \
               --password "$NOTARIZATION_PWD" \
-              --team-id "$NOTARIZATION_TEAM_ID"
-            echo "::error::App notarization failed with status: $APP_NOTARIZATION_STATUS"
-            exit 1
-          fi
+              --team-id "$NOTARIZATION_TEAM_ID" \
+              --output-format json \
+              > app-notarization-info.json; then
+              APP_NOTARIZATION_STATUS=$(ruby -rjson -e 'puts JSON.parse(File.read("app-notarization-info.json")).fetch("status")')
+              echo "App notarization status: $APP_NOTARIZATION_STATUS"
+
+              if [ "$APP_NOTARIZATION_STATUS" = "Accepted" ]; then
+                exit 0
+              fi
+
+              if [ "$APP_NOTARIZATION_STATUS" = "Invalid" ]; then
+                xcrun notarytool log "$APP_NOTARIZATION_ID" \
+                  --apple-id "$NOTARIZATION_APPLE_ID" \
+                  --password "$NOTARIZATION_PWD" \
+                  --team-id "$NOTARIZATION_TEAM_ID"
+                echo "::error::App notarization failed with status: $APP_NOTARIZATION_STATUS"
+                exit 1
+              fi
+            else
+              echo "Failed to query app notarization status. Retrying..."
+            fi
+
+            sleep 20
+          done
+
+          echo "::error::Timed out waiting for app notarization result."
+          exit 1
 
       - name: Staple App Bundle
         run: |
@@ -234,25 +258,49 @@ jobs:
           NOTARIZATION_PWD: ${{ secrets.NOTARIZATION_PWD }}
           NOTARIZATION_TEAM_ID: ${{ secrets.NOTARIZATION_TEAM_ID }}
         run: |
-          xcrun notarytool submit \
-            "composeApp/build/compose/binaries/main/dmg/${{ steps.version.outputs.dmg_name }}" \
+          DMG="composeApp/build/compose/binaries/main/dmg/${{ steps.version.outputs.dmg_name }}"
+
+          xcrun notarytool submit "$DMG" \
             --apple-id "$NOTARIZATION_APPLE_ID" \
             --password "$NOTARIZATION_PWD" \
             --team-id "$NOTARIZATION_TEAM_ID" \
-            --wait \
             --output-format json \
             | tee dmg-notarization.json
 
           DMG_NOTARIZATION_ID=$(ruby -rjson -e 'puts JSON.parse(File.read("dmg-notarization.json")).fetch("id")')
-          DMG_NOTARIZATION_STATUS=$(ruby -rjson -e 'puts JSON.parse(File.read("dmg-notarization.json")).fetch("status")')
-          if [ "$DMG_NOTARIZATION_STATUS" != "Accepted" ]; then
-            xcrun notarytool log "$DMG_NOTARIZATION_ID" \
+
+          for attempt in {1..90}; do
+            echo "Checking DMG notarization status, attempt ${attempt}/90"
+            if xcrun notarytool info "$DMG_NOTARIZATION_ID" \
               --apple-id "$NOTARIZATION_APPLE_ID" \
               --password "$NOTARIZATION_PWD" \
-              --team-id "$NOTARIZATION_TEAM_ID"
-            echo "::error::DMG notarization failed with status: $DMG_NOTARIZATION_STATUS"
-            exit 1
-          fi
+              --team-id "$NOTARIZATION_TEAM_ID" \
+              --output-format json \
+              > dmg-notarization-info.json; then
+              DMG_NOTARIZATION_STATUS=$(ruby -rjson -e 'puts JSON.parse(File.read("dmg-notarization-info.json")).fetch("status")')
+              echo "DMG notarization status: $DMG_NOTARIZATION_STATUS"
+
+              if [ "$DMG_NOTARIZATION_STATUS" = "Accepted" ]; then
+                exit 0
+              fi
+
+              if [ "$DMG_NOTARIZATION_STATUS" = "Invalid" ]; then
+                xcrun notarytool log "$DMG_NOTARIZATION_ID" \
+                  --apple-id "$NOTARIZATION_APPLE_ID" \
+                  --password "$NOTARIZATION_PWD" \
+                  --team-id "$NOTARIZATION_TEAM_ID"
+                echo "::error::DMG notarization failed with status: $DMG_NOTARIZATION_STATUS"
+                exit 1
+              fi
+            else
+              echo "Failed to query DMG notarization status. Retrying..."
+            fi
+
+            sleep 20
+          done
+
+          echo "::error::Timed out waiting for DMG notarization result."
+          exit 1
 
       - name: Staple Notarization Ticket
         run: |
