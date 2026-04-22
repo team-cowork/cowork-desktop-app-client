@@ -137,10 +137,10 @@ jobs:
             > app-notarization.json
 
           APP_NOTARIZATION_ID=$(ruby -rjson -e 'puts JSON.parse(File.read("app-notarization.json")).fetch("id")')
-          echo "App notarization submitted."
+          echo "App notarization submitted: $APP_NOTARIZATION_ID"
 
           LAST_NOTARIZATION_STATUS=""
-          for attempt in {1..90}; do
+          for attempt in {1..180}; do
             if run_with_timeout 120 xcrun notarytool info "$APP_NOTARIZATION_ID" \
               --apple-id "$NOTARIZATION_APPLE_ID" \
               --password "$NOTARIZATION_PWD" \
@@ -149,7 +149,7 @@ jobs:
               > app-notarization-info.json; then
               APP_NOTARIZATION_STATUS=$(ruby -rjson -e 'puts JSON.parse(File.read("app-notarization-info.json")).fetch("status")')
               if [ "$APP_NOTARIZATION_STATUS" != "$LAST_NOTARIZATION_STATUS" ] || [ $((attempt % 10)) -eq 0 ]; then
-                echo "App notarization status: $APP_NOTARIZATION_STATUS (${attempt}/90)"
+                echo "App notarization status: $APP_NOTARIZATION_STATUS (${attempt}/180)"
               fi
               LAST_NOTARIZATION_STATUS="$APP_NOTARIZATION_STATUS"
 
@@ -166,13 +166,14 @@ jobs:
                 exit 1
               fi
             else
-              echo "App notarization status query failed or timed out (${attempt}/90)."
+              echo "App notarization status query failed or timed out (${attempt}/180)."
             fi
 
             sleep 20
           done
 
           echo "::error::Timed out waiting for app notarization result."
+          cat app-notarization-info.json || true
           exit 1
 
       - name: Staple App Bundle
