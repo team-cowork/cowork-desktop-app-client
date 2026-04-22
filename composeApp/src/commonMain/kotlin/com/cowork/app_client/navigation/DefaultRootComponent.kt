@@ -7,6 +7,7 @@ import com.arkivanov.decompose.router.stack.childStack
 import com.arkivanov.decompose.router.stack.replaceAll
 import com.arkivanov.decompose.value.Value
 import com.arkivanov.mvikotlin.core.store.StoreFactory
+import com.cowork.app_client.data.local.LayoutPreferenceStorage
 import com.cowork.app_client.data.repository.AuthRepository
 import com.cowork.app_client.data.repository.ChannelRepository
 import com.cowork.app_client.data.repository.ChatRepository
@@ -28,6 +29,7 @@ class DefaultRootComponent(
     private val chatRepository: ChatRepository,
     private val preferenceRepository: PreferenceRepository,
     private val userRepository: UserRepository,
+    private val layoutPreferenceStorage: LayoutPreferenceStorage,
     private val oAuthLauncher: OAuthLauncher,
 ) : RootComponent, ComponentContext by componentContext {
 
@@ -64,6 +66,7 @@ class DefaultRootComponent(
                     chatRepository = chatRepository,
                     preferenceRepository = preferenceRepository,
                     userRepository = userRepository,
+                    layoutPreferenceStorage = layoutPreferenceStorage,
                     onSignedOut = { navigation.replaceAll(Config.Auth) },
                 )
             )

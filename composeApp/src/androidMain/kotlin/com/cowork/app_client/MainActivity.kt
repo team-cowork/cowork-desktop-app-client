@@ -7,6 +7,7 @@ import androidx.activity.enableEdgeToEdge
 import com.arkivanov.decompose.DefaultComponentContext
 import com.arkivanov.decompose.defaultComponentContext
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
+import com.cowork.app_client.data.local.LayoutPreferenceStorage
 import com.cowork.app_client.data.repository.AuthRepository
 import com.cowork.app_client.data.repository.ChannelRepository
 import com.cowork.app_client.data.repository.ChatRepository
@@ -40,6 +41,7 @@ class MainActivity : ComponentActivity() {
             chatRepository = get<ChatRepository>(),
             preferenceRepository = get<PreferenceRepository>(),
             userRepository = get<UserRepository>(),
+            layoutPreferenceStorage = get<LayoutPreferenceStorage>(),
             oAuthLauncher = get<OAuthLauncher>(),
         )
 

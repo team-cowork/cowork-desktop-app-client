@@ -12,6 +12,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -95,8 +96,12 @@ private val DndOptions = listOf(
 fun MainScreen(component: MainComponent) {
     val state by component.state.collectAsState()
     val density = LocalDensity.current
-    var teamRailWidth by remember { mutableStateOf(88.dp) }
-    var channelPaneWidth by remember { mutableStateOf(280.dp) }
+    var teamRailWidth by remember {
+        mutableStateOf(component.layoutPreferenceStorage.getTeamRailWidth()?.dp?.coerceIn(80.dp, 104.dp) ?: 88.dp)
+    }
+    var channelPaneWidth by remember {
+        mutableStateOf(component.layoutPreferenceStorage.getChannelPaneWidth()?.dp?.coerceIn(220.dp, 420.dp) ?: 280.dp)
+    }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -111,14 +116,7 @@ fun MainScreen(component: MainComponent) {
                     onCreateTeamClick = component::onCreateTeamClick,
                 )
 
-                VerticalResizeHandle(
-                    lineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.34f),
-                    onDrag = { delta ->
-                        teamRailWidth = with(density) {
-                            (teamRailWidth + delta.toDp()).coerceIn(80.dp, 104.dp)
-                        }
-                    },
-                )
+                VerticalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.34f))
 
                 ChannelPane(
                     state = state,
@@ -128,17 +126,30 @@ fun MainScreen(component: MainComponent) {
                     onAccountBarClick = component::onAccountMenuClick,
                 )
 
-                VerticalResizeHandle(
-                    lineColor = Color.Transparent,
+                VerticalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f))
+
+                WorkspacePane(state = state)
+            }
+
+            // 드래그 핸들을 Row 바깥에서 오버레이 — 1dp 시각 라인과 겹치도록 배치해 갭 없음
+            PanelDragHandle(
+                xOffset = teamRailWidth - 3.dp,
+                    onDrag = { delta ->
+                        teamRailWidth = with(density) {
+                            (teamRailWidth + delta.toDp()).coerceIn(80.dp, 104.dp)
+                        }
+                        component.layoutPreferenceStorage.saveTeamRailWidth(teamRailWidth.value)
+                    },
+                )
+            PanelDragHandle(
+                xOffset = teamRailWidth + 1.dp + channelPaneWidth - 3.dp,
                     onDrag = { delta ->
                         channelPaneWidth = with(density) {
                             (channelPaneWidth + delta.toDp()).coerceIn(220.dp, 420.dp)
                         }
+                        component.layoutPreferenceStorage.saveChannelPaneWidth(channelPaneWidth.value)
                     },
                 )
-
-                WorkspacePane(state = state)
-            }
 
             if (state.isAccountMenuOpen) {
                 Box(
@@ -276,41 +287,28 @@ private fun TeamAvatar(
     }
 }
 
+// Row 바깥 Box 위에 absoluteOffset으로 올리는 투명 드래그 핸들.
+// 시각 라인(VerticalDivider)과 분리되어 있어 패널 배경색과 1dp 선 사이 갭이 없음.
 @Composable
-private fun VerticalResizeHandle(
-    lineColor: Color,
+private fun PanelDragHandle(
+    xOffset: Dp,
     onDrag: (Float) -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val isHovered by interactionSource.collectIsHoveredAsState()
 
     Box(
         modifier = Modifier
+            .absoluteOffset(x = xOffset)
             .fillMaxHeight()
             .width(6.dp)
             .horizontalResizeCursor()
             .hoverable(interactionSource)
-            .background(Color.Transparent)
             .pointerInput(Unit) {
                 detectHorizontalDragGestures { _, dragAmount ->
                     onDrag(dragAmount)
                 }
             },
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxHeight()
-                .width(1.dp)
-                .background(
-                    if (isHovered) {
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)
-                    } else {
-                        lineColor
-                    },
-                ),
-        )
-    }
+    )
 }
 
 @Composable

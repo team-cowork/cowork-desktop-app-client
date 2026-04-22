@@ -6,6 +6,7 @@ import com.arkivanov.mvikotlin.core.instancekeeper.getStore
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.labels
 import com.arkivanov.mvikotlin.extensions.coroutines.stateFlow
+import com.cowork.app_client.data.local.LayoutPreferenceStorage
 import com.cowork.app_client.data.repository.AuthRepository
 import com.cowork.app_client.data.repository.ChannelRepository
 import com.cowork.app_client.data.repository.ChatRepository
@@ -33,6 +34,7 @@ class DefaultMainComponent(
     chatRepository: ChatRepository,
     preferenceRepository: PreferenceRepository,
     userRepository: UserRepository,
+    override val layoutPreferenceStorage: LayoutPreferenceStorage,
     private val onSignedOut: () -> Unit,
 ) : MainComponent, ComponentContext by componentContext {
 

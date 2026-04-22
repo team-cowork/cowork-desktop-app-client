@@ -32,6 +32,7 @@ import org.jetbrains.compose.resources.painterResource
 import com.arkivanov.decompose.DefaultComponentContext
 import com.arkivanov.essenty.lifecycle.LifecycleRegistry
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
+import com.cowork.app_client.data.local.LayoutPreferenceStorage
 import com.cowork.app_client.data.repository.AuthRepository
 import com.cowork.app_client.data.repository.ChannelRepository
 import com.cowork.app_client.data.repository.ChatRepository
@@ -72,6 +73,7 @@ fun main(args: Array<String>) {
             chatRepository = koin.get<ChatRepository>(),
             preferenceRepository = koin.get<PreferenceRepository>(),
             userRepository = koin.get<UserRepository>(),
+            layoutPreferenceStorage = koin.get<LayoutPreferenceStorage>(),
             oAuthLauncher = koin.get<OAuthLauncher>(),
         )
     }
