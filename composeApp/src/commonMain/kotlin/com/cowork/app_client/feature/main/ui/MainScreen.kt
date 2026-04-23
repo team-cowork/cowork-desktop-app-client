@@ -37,6 +37,7 @@ import androidx.compose.material.icons.automirrored.rounded.HelpOutline
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Link
@@ -77,6 +78,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.cowork.app_client.domain.model.Channel
 import com.cowork.app_client.domain.model.ChannelType
@@ -85,7 +87,7 @@ import com.cowork.app_client.domain.model.TeamSummary
 import com.cowork.app_client.domain.model.UserStatus
 import com.cowork.app_client.feature.main.component.MainComponent
 import com.cowork.app_client.feature.main.store.MainStore
-import com.cowork.app_client.ui.theme.CoworkColors
+import com.cowork.app_client.ui.theme.coworkExtendedColors
 import com.cowork.app_client.util.decodeImageBitmap
 import com.cowork.app_client.util.horizontalResizeCursor
 import com.cowork.app_client.util.pickImageBytes
@@ -98,8 +100,7 @@ import coworkappclient.composeapp.generated.resources.logo_cowork
 import org.jetbrains.compose.resources.painterResource
 import org.koin.compose.koinInject
 
-private val StatusOnlineColor = Color(0xFF23A55A)
-private val StatusDndColor = Color(0xFFF23F42)
+// status colors resolved at composition time via coworkExtendedColors
 
 private val DndOptions = listOf(
     "30분" to 0.5,
@@ -281,7 +282,7 @@ private fun AddTeamButton(onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .size(36.dp)
-            .clip(if (isHovered) RoundedCornerShape(12.dp) else CircleShape)
+            .clip(if (isHovered) MaterialTheme.shapes.medium else CircleShape)
             .background(
                 if (isHovered) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                 else MaterialTheme.colorScheme.surfaceVariant
@@ -531,7 +532,7 @@ private fun AccountMenuCard(
     Box(modifier = Modifier.width(436.dp)) {
         Surface(
             modifier = Modifier.width(280.dp).padding(8.dp),
-            shape = RoundedCornerShape(8.dp),
+            shape = MaterialTheme.shapes.small,
             color = MaterialTheme.colorScheme.surfaceVariant,
             border = BorderStroke(
                 width = 1.dp,
@@ -551,7 +552,7 @@ private fun AccountMenuCard(
                                 Brush.horizontalGradient(
                                     listOf(
                                         MaterialTheme.colorScheme.primary,
-                                        CoworkColors.Red700,
+                                        MaterialTheme.colorScheme.secondary,
                                     ),
                                 ),
                             ),
@@ -972,7 +973,7 @@ private fun DndExpiryFlyout(
 ) {
     Surface(
         modifier = modifier.width(142.dp),
-        shape = RoundedCornerShape(8.dp),
+        shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.surfaceVariant,
         border = BorderStroke(
             width = 1.dp,
@@ -1058,7 +1059,7 @@ private fun StatusGlyph(
     isSelected: Boolean,
 ) {
     val color = when {
-        status == UserStatus.DoNotDisturb -> StatusDndColor
+        status == UserStatus.DoNotDisturb -> coworkExtendedColors.statusDnd
         isSelected -> status.dotColor()
         else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.48f)
     }
@@ -1116,7 +1117,7 @@ private fun ChannelRow(
             imageVector = channel.type.icon(),
             contentDescription = channel.type.label(),
             modifier = Modifier.size(17.dp),
-            tint = CoworkColors.Red700,
+            tint = MaterialTheme.colorScheme.primary,
         )
         Text(
             text = channel.name,
@@ -1251,7 +1252,7 @@ private fun SettingsDialog(
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             modifier = Modifier.widthIn(min = 440.dp, max = 520.dp),
-            shape = RoundedCornerShape(8.dp),
+            shape = MaterialTheme.shapes.small,
             color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(
                 width = 1.dp,
@@ -1330,7 +1331,7 @@ private fun SettingsSection(
         Box(
             modifier = Modifier
                 .size(30.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(MaterialTheme.shapes.small)
                 .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)),
             contentAlignment = Alignment.Center,
         ) {
@@ -1372,65 +1373,101 @@ private fun CreateTeamDialog(
     onDescriptionChange: (String) -> Unit,
     onSubmit: () -> Unit,
 ) {
+    val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+    var iconBytes by remember { mutableStateOf<ByteArray?>(null) }
+    val iconBitmap = remember(iconBytes) { iconBytes?.let { decodeImageBitmap(it) } }
+
     Dialog(onDismissRequest = onDismiss) {
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = MaterialTheme.shapes.large,
             color = MaterialTheme.colorScheme.surface,
             shadowElevation = 32.dp,
         ) {
-            Column(modifier = Modifier.width(440.dp)) {
-                // 그라디언트 헤더
+            Column(
+                modifier = Modifier.width(440.dp).padding(28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                // 타이틀
+                Text(
+                    text = "새 팀 만들기",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "팀 아이콘과 이름을 설정하세요.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // 팀 아이콘 업로드
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(130.dp)
-                        .background(
-                            Brush.linearGradient(
-                                listOf(
-                                    MaterialTheme.colorScheme.primary,
-                                    CoworkColors.Red700,
-                                )
-                            )
-                        ),
+                        .size(80.dp)
+                        .clip(MaterialTheme.shapes.extraLarge)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable {
+                            coroutineScope.launch {
+                                val result = pickImageBytes()
+                                if (result != null) iconBytes = result.first
+                            }
+                        },
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(10.dp)
-                            .size(28.dp)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.15f))
-                            .clickable(onClick = onDismiss),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Close,
-                            contentDescription = "닫기",
-                            modifier = Modifier.size(16.dp),
-                            tint = Color.White,
-                        )
-                    }
-                    Column(
-                        modifier = Modifier.align(Alignment.Center),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
+                    if (iconBitmap != null) {
                         Image(
-                            painter = painterResource(Res.drawable.logo_cowork),
-                            contentDescription = null,
-                            modifier = Modifier.size(40.dp),
+                            bitmap = iconBitmap,
+                            contentDescription = "팀 아이콘",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "새 팀 만들기",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                        )
+                        // 호버 오버레이
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.35f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Add,
+                                contentDescription = null,
+                                modifier = Modifier.size(24.dp),
+                                tint = Color.White,
+                            )
+                        }
+                    } else {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Rounded.Add,
+                                contentDescription = null,
+                                modifier = Modifier.size(26.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "아이콘",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
+                if (iconBytes != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "서버 연동 후 업로드됩니다",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    )
+                }
 
-                // 폼 바디
-                Column(modifier = Modifier.padding(horizontal = 28.dp, vertical = 24.dp)) {
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // 폼 — 좌측 정렬
+                Column(modifier = Modifier.fillMaxWidth()) {
                     Text(
                         text = "팀 이름",
                         style = MaterialTheme.typography.labelSmall,
@@ -1469,7 +1506,7 @@ private fun CreateTeamDialog(
                         onClick = onSubmit,
                         enabled = state.canSubmitTeam,
                         modifier = Modifier.fillMaxWidth().height(44.dp),
-                        shape = RoundedCornerShape(8.dp),
+                        shape = MaterialTheme.shapes.small,
                     ) {
                         if (state.isCreatingTeam) {
                             CircularProgressIndicator(
@@ -1502,70 +1539,37 @@ private fun CreateChannelDialog(
 ) {
     Dialog(onDismissRequest = onDismiss) {
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = MaterialTheme.shapes.large,
             color = MaterialTheme.colorScheme.surface,
             shadowElevation = 32.dp,
         ) {
-            Column(modifier = Modifier.width(440.dp)) {
-                // 그라디언트 헤더
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(110.dp)
-                        .background(
-                            Brush.linearGradient(
-                                listOf(
-                                    MaterialTheme.colorScheme.secondary,
-                                    MaterialTheme.colorScheme.primary,
-                                )
-                            )
-                        ),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(10.dp)
-                            .size(28.dp)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.15f))
-                            .clickable(onClick = onDismiss),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Close,
-                            contentDescription = "닫기",
-                            modifier = Modifier.size(16.dp),
-                            tint = Color.White,
-                        )
-                    }
-                    Column(
-                        modifier = Modifier.align(Alignment.Center),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Text(
-                            text = "채널 유형 선택",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White.copy(alpha = 0.75f),
-                            letterSpacing = 1.sp,
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "새 채널 만들기",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                        )
-                    }
-                }
+            Column(modifier = Modifier.width(440.dp).padding(28.dp)) {
+                // 타이틀
+                Text(
+                    text = "새 채널 만들기",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "채널 유형을 선택하고 이름을 지정하세요.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
 
-                // 채널 유형 탭
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // 채널 유형 선택 칩
+                Text(
+                    text = "채널 유형",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    letterSpacing = 0.8.sp,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(
                         ChannelType.Text,
                         ChannelType.Voice,
@@ -1580,61 +1584,60 @@ private fun CreateChannelDialog(
                     }
                 }
 
-                // 폼 바디
-                Column(modifier = Modifier.padding(horizontal = 28.dp, vertical = 20.dp)) {
-                    Text(
-                        text = "채널 이름",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        letterSpacing = 0.8.sp,
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    DialogTextField(
-                        value = state.createChannelName,
-                        onValueChange = onNameChange,
-                        placeholder = "예: 일반",
-                        singleLine = true,
-                    )
+                Spacer(modifier = Modifier.height(16.dp))
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "채널 이름",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    letterSpacing = 0.8.sp,
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                DialogTextField(
+                    value = state.createChannelName,
+                    onValueChange = onNameChange,
+                    placeholder = "예: 일반",
+                    singleLine = true,
+                )
 
-                    Text(
-                        text = "공지 (선택)",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        letterSpacing = 0.8.sp,
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    DialogTextField(
-                        value = state.createChannelNotice,
-                        onValueChange = onNoticeChange,
-                        placeholder = "채널 상단에 표시될 공지 내용",
-                        minLines = 3,
-                    )
+                Spacer(modifier = Modifier.height(16.dp))
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                Text(
+                    text = "공지 (선택)",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    letterSpacing = 0.8.sp,
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                DialogTextField(
+                    value = state.createChannelNotice,
+                    onValueChange = onNoticeChange,
+                    placeholder = "채널 상단에 표시될 공지 내용",
+                    minLines = 3,
+                )
 
-                    Button(
-                        onClick = onSubmit,
-                        enabled = state.canSubmitChannel,
-                        modifier = Modifier.fillMaxWidth().height(44.dp),
-                        shape = RoundedCornerShape(8.dp),
-                    ) {
-                        if (state.isCreatingChannel) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                            )
-                        } else {
-                            Text(
-                                "채널 만들기",
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Button(
+                    onClick = onSubmit,
+                    enabled = state.canSubmitChannel,
+                    modifier = Modifier.fillMaxWidth().height(44.dp),
+                    shape = MaterialTheme.shapes.small,
+                ) {
+                    if (state.isCreatingChannel) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                        )
+                    } else {
+                        Text(
+                            "채널 만들기",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                        )
                     }
                 }
             }
@@ -1666,7 +1669,7 @@ private fun DialogTextField(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(MaterialTheme.shapes.small)
                     .background(bgColor)
                     .padding(horizontal = 14.dp, vertical = 12.dp),
             ) {
@@ -1733,9 +1736,13 @@ private fun MainStore.State.accountDisplayName(): String =
 private fun MainStore.State.accountInitial(): String =
     accountDisplayName().firstOrNull()?.uppercase() ?: "?"
 
-private fun UserStatus.dotColor(): Color = when (this) {
-    UserStatus.Online -> StatusOnlineColor
-    UserStatus.DoNotDisturb -> StatusDndColor
+@Composable
+private fun UserStatus.dotColor(): Color {
+    val ext = coworkExtendedColors
+    return when (this) {
+        UserStatus.Online -> ext.statusOnline
+        UserStatus.DoNotDisturb -> ext.statusDnd
+    }
 }
 
 private fun UserStatus.label(): String = when (this) {
