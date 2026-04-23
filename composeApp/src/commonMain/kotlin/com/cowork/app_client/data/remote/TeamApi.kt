@@ -8,8 +8,10 @@ import io.ktor.client.call.body
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.get
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
+import io.ktor.http.content.ByteArrayContent
 import io.ktor.http.contentType
 import kotlinx.serialization.Serializable
 
@@ -34,12 +36,39 @@ class TeamApi(
             setBody(CreateTeamRequest(name, description, iconUrl))
         }.body<ApiResponse<TeamResponse>>().data?.toDomain() ?: error("팀 생성 응답에 data가 없습니다")
 
-    // TODO: 서버 구현 후 활성화 (docs/api/team-icon-upload.md 참고)
-    // suspend fun generateIconPresignedUrl(accessToken: String, contentType: String): IconPresignedUploadResponse
-    // suspend fun putIconToS3(uploadUrl: String, bytes: ByteArray, contentType: String)
-    //
-    // @Serializable
-    // data class IconPresignedUploadResponse(val uploadUrl: String, val iconUrl: String)
+    suspend fun generateIconPresignedUrl(accessToken: String, contentType: String): IconPresignedUploadResponse =
+        client.post("$baseUrl/teams/icon/presigned") {
+            bearerAuth(accessToken)
+            contentType(ContentType.Application.Json)
+            setBody(IconPresignedUrlRequest(contentType))
+        }.body<ApiResponse<IconPresignedUploadResponse>>().data
+            ?: error("아이콘 Presigned URL 발급 실패")
+
+    suspend fun confirmIconUpload(accessToken: String, objectKey: String): String =
+        client.post("$baseUrl/teams/icon/confirm") {
+            bearerAuth(accessToken)
+            contentType(ContentType.Application.Json)
+            setBody(IconConfirmRequest(objectKey))
+        }.body<ApiResponse<IconConfirmResponse>>().data?.iconUrl
+            ?: error("아이콘 업로드 확인 실패")
+
+    suspend fun putIconToS3(uploadUrl: String, bytes: ByteArray, contentType: String) {
+        client.put(uploadUrl) {
+            setBody(ByteArrayContent(bytes, ContentType.parse(contentType)))
+        }
+    }
+
+    @Serializable
+    data class IconPresignedUploadResponse(val uploadUrl: String, val objectKey: String)
+
+    @Serializable
+    private data class IconPresignedUrlRequest(val contentType: String)
+
+    @Serializable
+    private data class IconConfirmRequest(val objectKey: String)
+
+    @Serializable
+    private data class IconConfirmResponse(val iconUrl: String)
 
     @Serializable
     private data class CreateTeamRequest(
