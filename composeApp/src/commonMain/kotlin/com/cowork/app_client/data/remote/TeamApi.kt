@@ -34,6 +34,13 @@ class TeamApi(
             setBody(CreateTeamRequest(name, description, iconUrl))
         }.body<ApiResponse<TeamResponse>>().data?.toDomain() ?: error("팀 생성 응답에 data가 없습니다")
 
+    // TODO: 서버 구현 후 활성화 (docs/api/team-icon-upload.md 참고)
+    // suspend fun generateIconPresignedUrl(accessToken: String, contentType: String): IconPresignedUploadResponse
+    // suspend fun putIconToS3(uploadUrl: String, bytes: ByteArray, contentType: String)
+    //
+    // @Serializable
+    // data class IconPresignedUploadResponse(val uploadUrl: String, val iconUrl: String)
+
     @Serializable
     private data class CreateTeamRequest(
         val name: String,
