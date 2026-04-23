@@ -7,60 +7,86 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-object CoworkColors {
-    val Red50 = Color(0xFFFFEEEE)
-    val Red100 = Color(0xFFFFD4D6)
-    val Red200 = Color(0xFFFEAFB4)
-    val Red300 = Color(0xFFFB8890)
-    val Red400 = Color(0xFFF66570)
-    val Red500 = Color(0xFFF04452)
-    val Red700 = Color(0xFFD22030)
-    val Red800 = Color(0xFFBC1B2A)
-    val Red900 = Color(0xFFA51926)
-}
-
+// ── Light color scheme ────────────────────────────────────────────────────────
 private val CoworkLightColorScheme = lightColorScheme(
-    primary = CoworkColors.Red500,
-    onPrimary = Color.White,
-    primaryContainer = CoworkColors.Red50,
-    onPrimaryContainer = CoworkColors.Red900,
-    secondary = CoworkColors.Red700,
-    onSecondary = Color.White,
-    secondaryContainer = CoworkColors.Red100,
+    primary              = CoworkColors.Red500,
+    onPrimary            = Color.White,
+    primaryContainer     = CoworkColors.Red50,
+    onPrimaryContainer   = CoworkColors.Red900,
+
+    secondary            = CoworkColors.Red700,
+    onSecondary          = Color.White,
+    secondaryContainer   = CoworkColors.Red100,
     onSecondaryContainer = CoworkColors.Red900,
-    tertiary = Color(0xFF2F6FED),
-    onTertiary = Color.White,
-    background = Color(0xFFFFFBFF),
-    onBackground = Color(0xFF201A1A),
-    surface = Color.White,
-    onSurface = Color(0xFF201A1A),
-    surfaceVariant = Color(0xFFF5DDDF),
-    onSurfaceVariant = Color(0xFF534344),
-    outline = Color(0xFF857374),
-    error = CoworkColors.Red700,
-    onError = Color.White,
+
+    tertiary             = CoworkColors.Blue500,
+    onTertiary           = Color.White,
+    tertiaryContainer    = CoworkColors.Blue50,
+    onTertiaryContainer  = CoworkColors.Blue900,
+
+    background           = CoworkColors.Neutral50,
+    onBackground         = Color(0xFF060607),
+
+    surface              = Color.White,
+    onSurface            = Color(0xFF060607),
+    surfaceVariant       = CoworkColors.Neutral100,
+    onSurfaceVariant     = CoworkColors.Neutral500,
+    surfaceContainer     = CoworkColors.Neutral50,
+    surfaceContainerLow  = Color.White,
+    surfaceContainerHigh = CoworkColors.Neutral100,
+
+    outline              = CoworkColors.Neutral200,
+    outlineVariant       = CoworkColors.Neutral100,
+
+    error                = CoworkColors.Red700,
+    onError              = Color.White,
+    errorContainer       = CoworkColors.Red50,
+    onErrorContainer     = CoworkColors.Red900,
+
+    inverseSurface       = CoworkColors.Neutral800,
+    inverseOnSurface     = CoworkColors.Neutral100,
+    inversePrimary       = CoworkColors.Red300,
 )
 
+// ── Dark color scheme (Discord-style neutral surfaces) ────────────────────────
 private val CoworkDarkColorScheme = darkColorScheme(
-    primary = CoworkColors.Red500,
-    onPrimary = Color.White,
-    primaryContainer = CoworkColors.Red900,
-    onPrimaryContainer = CoworkColors.Red50,
-    secondary = CoworkColors.Red300,
-    onSecondary = Color(0xFF4C0008),
-    secondaryContainer = CoworkColors.Red800,
+    primary              = CoworkColors.Red400,
+    onPrimary            = Color.White,
+    primaryContainer     = CoworkColors.Red900,
+    onPrimaryContainer   = CoworkColors.Red100,
+
+    secondary            = CoworkColors.Red300,
+    onSecondary          = CoworkColors.Red900,
+    secondaryContainer   = CoworkColors.Red800,
     onSecondaryContainer = CoworkColors.Red50,
-    tertiary = Color(0xFF9FC2FF),
-    onTertiary = Color(0xFF00315F),
-    background = Color(0xFF191113),
-    onBackground = Color(0xFFF1DDDF),
-    surface = Color(0xFF201719),
-    onSurface = Color(0xFFF1DDDF),
-    surfaceVariant = Color(0xFF534344),
-    onSurfaceVariant = Color(0xFFD8C2C4),
-    outline = Color(0xFFA08C8E),
-    error = CoworkColors.Red300,
-    onError = Color(0xFF69000F),
+
+    tertiary             = CoworkColors.Blue300,
+    onTertiary           = CoworkColors.Blue900,
+    tertiaryContainer    = CoworkColors.Blue900,
+    onTertiaryContainer  = CoworkColors.Blue100,
+
+    background           = CoworkColors.Neutral850,
+    onBackground         = Color(0xFFDBDEE1),
+
+    surface              = CoworkColors.Neutral800,
+    onSurface            = Color(0xFFDBDEE1),
+    surfaceVariant       = CoworkColors.Neutral700,
+    onSurfaceVariant     = CoworkColors.Neutral300,
+    surfaceContainer     = CoworkColors.Neutral750,
+    surfaceContainerLow  = CoworkColors.Neutral800,
+    surfaceContainerHigh = CoworkColors.Neutral700,
+
+    outline              = CoworkColors.Neutral600,
+    outlineVariant       = CoworkColors.Neutral700,
+
+    error                = CoworkColors.Red400,
+    onError              = Color.White,
+    errorContainer       = CoworkColors.Red900,
+    onErrorContainer     = CoworkColors.Red100,
+
+    inverseSurface       = CoworkColors.Neutral100,
+    inverseOnSurface     = CoworkColors.Neutral800,
+    inversePrimary       = CoworkColors.Red600,
 )
 
 @Composable
@@ -68,8 +94,12 @@ fun CoworkTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
-    MaterialTheme(
-        colorScheme = if (darkTheme) CoworkDarkColorScheme else CoworkLightColorScheme,
-        content = content,
-    )
+    ProvideCoworkExtendedColors(darkTheme = darkTheme) {
+        MaterialTheme(
+            colorScheme = if (darkTheme) CoworkDarkColorScheme else CoworkLightColorScheme,
+            typography  = CoworkTypography,
+            shapes      = CoworkShapes,
+            content     = content,
+        )
+    }
 }
