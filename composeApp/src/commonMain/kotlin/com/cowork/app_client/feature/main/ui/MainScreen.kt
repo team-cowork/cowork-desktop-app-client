@@ -1,12 +1,17 @@
 package com.cowork.app_client.feature.main.ui
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -51,14 +56,20 @@ import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
@@ -72,6 +83,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -82,15 +94,21 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.window.Dialog
+import com.cowork.app_client.domain.model.AppLanguage
+import com.cowork.app_client.domain.model.AppTheme
 import com.cowork.app_client.domain.model.Channel
 import com.cowork.app_client.domain.model.ChannelType
+import com.cowork.app_client.domain.model.DateFormat
 import com.cowork.app_client.domain.model.TeamRole
 import com.cowork.app_client.domain.model.TeamSummary
+import com.cowork.app_client.domain.model.TimeFormat
 import com.cowork.app_client.domain.model.UserStatus
 import com.cowork.app_client.feature.main.component.MainComponent
 import com.cowork.app_client.feature.main.store.MainStore
@@ -232,6 +250,11 @@ fun MainScreen(component: MainComponent) {
                 SettingsDialog(
                     state = state,
                     onDismiss = component::onSettingsDismiss,
+                    onThemeChange = component::onThemeChange,
+                    onLanguageChange = component::onLanguageChange,
+                    onTimeFormatChange = component::onTimeFormatChange,
+                    onDateFormatChange = component::onDateFormatChange,
+                    onMarketingEmailChange = component::onMarketingEmailChange,
                 )
             }
         }
@@ -485,14 +508,26 @@ private fun AccountBar(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+
+    // 팝업이 열려있거나 호버 중이면 @github 표시 (팝업 열릴 때 hover 해제로 인한 역방향 애니메이션 방지)
+    val showGithub = (isHovered || state.isAccountMenuOpen) && !state.accountGithub.isNullOrBlank()
+
     Row(
         modifier = modifier
             .fillMaxWidth()
             .height(64.dp)
             .background(
-                MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
+                if (isHovered) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f)
+                else Color.Transparent
             )
-            .clickable(onClick = onClick)
+            .hoverable(interactionSource)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            )
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -514,12 +549,32 @@ private fun AccountBar(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                text = state.accountStatus.label(),
-                style = MaterialTheme.typography.bodySmall,
-                color = state.accountStatus.dotColor(),
-                maxLines = 1,
-            )
+            // 자기 공간 내에서 위로 슬라이드하며 텍스트 전환
+            AnimatedContent(
+                targetState = showGithub,
+                transitionSpec = {
+                    if (targetState) {
+                        // 호버 진입: 아래서 위로 올라옴
+                        (slideInVertically(tween(200)) { it } + fadeIn(tween(150))) togetherWith
+                        (slideOutVertically(tween(200)) { -it } + fadeOut(tween(120)))
+                    } else {
+                        // 호버 해제: 위에서 아래로 내려옴
+                        (slideInVertically(tween(200)) { -it } + fadeIn(tween(150))) togetherWith
+                        (slideOutVertically(tween(200)) { it } + fadeOut(tween(120)))
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().clipToBounds(),
+                label = "subtitleSlide",
+            ) { showingGithub ->
+                Text(
+                    text = if (showingGithub) "@${state.accountGithub}" else state.accountStatus.label(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (showingGithub) MaterialTheme.colorScheme.primary else state.accountStatus.dotColor(),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
     }
 }
@@ -533,9 +588,7 @@ private fun AccountMenuCard(
     onUploadProfileImage: (ByteArray, String) -> Unit,
 ) {
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
-    var isDndSelectorOpen by remember(state.accountStatus) {
-        mutableStateOf(state.accountStatus == UserStatus.DoNotDisturb)
-    }
+    var isDndSelectorOpen by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.width(436.dp)) {
         Surface(
@@ -602,10 +655,16 @@ private fun AccountMenuCard(
                         overflow = TextOverflow.Ellipsis,
                     )
 
+                    val hasStudentNumber = !state.accountStudentNumber.isNullOrBlank()
                     val profileLine = listOfNotNull(
                         state.accountStudentNumber?.takeIf { it.isNotBlank() },
                         state.accountMajor?.takeIf { it.isNotBlank() },
-                        state.accountStudentRole?.takeIf { it.isNotBlank() },
+                        state.accountStudentRole?.takeIf { role ->
+                            role.isNotBlank() && (
+                                !hasStudentNumber ||
+                                !role.equals("GENERAL_STUDENT", ignoreCase = true)
+                            )
+                        },
                     ).joinToString(" · ")
 
                     if (profileLine.isNotBlank()) {
@@ -620,13 +679,23 @@ private fun AccountMenuCard(
                     }
 
                     state.accountGithub?.takeIf { it.isNotBlank() }?.let { github ->
+                        val uriHandler = LocalUriHandler.current
+                        val githubInteraction = remember { MutableInteractionSource() }
+                        val isGithubHovered by githubInteraction.collectIsHoveredAsState()
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "GitHub @$github",
-                            style = MaterialTheme.typography.labelMedium,
+                            text = "@$github",
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                textDecoration = if (isGithubHovered) TextDecoration.Underline else TextDecoration.None,
+                            ),
                             color = MaterialTheme.colorScheme.primary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .hoverable(githubInteraction)
+                                .clickable(indication = null, interactionSource = githubInteraction) {
+                                    uriHandler.openUri("https://github.com/$github")
+                                },
                         )
                     }
 
@@ -829,12 +898,7 @@ private fun ProfileAvatar(
                     .align(Alignment.BottomEnd),
                 contentAlignment = Alignment.Center,
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(dotInnerSize)
-                        .clip(CircleShape)
-                        .background(status.dotColor()),
-                )
+                StatusGlyph(status = status, size = dotInnerSize)
             }
         }
     }
@@ -917,10 +981,7 @@ private fun CompactStatusOption(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        StatusGlyph(
-            status = status,
-            isSelected = isSelected,
-        )
+        StatusGlyph(status = status)
         Text(
             text = label,
             modifier = Modifier.weight(1f),
@@ -949,10 +1010,7 @@ private fun DndStatusOption(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        StatusGlyph(
-            status = UserStatus.DoNotDisturb,
-            isSelected = isSelected,
-        )
+        StatusGlyph(status = UserStatus.DoNotDisturb)
         Text(
             text = "방해금지",
             modifier = Modifier.weight(1f),
@@ -1064,24 +1122,20 @@ private fun DndExpiryOption(
 @Composable
 private fun StatusGlyph(
     status: UserStatus,
-    isSelected: Boolean,
+    size: Dp = 12.dp,
 ) {
-    val color = when {
-        status == UserStatus.DoNotDisturb -> coworkExtendedColors.statusDnd
-        isSelected -> status.dotColor()
-        else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.48f)
-    }
+    val color = status.dotColor()
 
-    Canvas(modifier = Modifier.size(12.dp)) {
+    Canvas(modifier = Modifier.size(size)) {
         when (status) {
-            UserStatus.Online -> drawCircle(color = color, radius = size.minDimension / 2f)
+            UserStatus.Online -> drawCircle(color = color, radius = this.size.minDimension / 2f)
             UserStatus.DoNotDisturb -> {
-                drawCircle(color = color, radius = size.minDimension / 2f)
+                drawCircle(color = color, radius = this.size.minDimension / 2f)
                 drawLine(
                     color = Color.White,
-                    start = Offset(size.width * 0.28f, size.height * 0.5f),
-                    end = Offset(size.width * 0.72f, size.height * 0.5f),
-                    strokeWidth = 1.8.dp.toPx(),
+                    start = Offset(this.size.width * 0.28f, this.size.height * 0.5f),
+                    end = Offset(this.size.width * 0.72f, this.size.height * 0.5f),
+                    strokeWidth = (1.8f * (size / 12.dp)).dp.toPx(),
                     cap = StrokeCap.Round,
                 )
             }
@@ -1252,33 +1306,259 @@ private fun EmptyPaneText(text: String) {
     )
 }
 
+private enum class SettingsCategory(val label: String, val icon: ImageVector) {
+    Appearance("외관", Icons.Rounded.Tune),
+    Account("내 계정", Icons.Rounded.Person),
+}
+
 @Composable
 private fun SettingsDialog(
     state: MainStore.State,
     onDismiss: () -> Unit,
+    onThemeChange: (AppTheme) -> Unit,
+    onLanguageChange: (AppLanguage) -> Unit,
+    onTimeFormatChange: (TimeFormat) -> Unit,
+    onDateFormatChange: (DateFormat) -> Unit,
+    onMarketingEmailChange: (Boolean) -> Unit,
 ) {
+    var selectedCategory by remember { mutableStateOf(SettingsCategory.Appearance) }
+
     CoworkDialog(onDismissRequest = onDismiss) {
-        Column(modifier = Modifier.widthIn(min = 440.dp, max = 520.dp)) {
-            CoworkDialogHeader(
-                title = "설정",
-                subtitle = state.accountDisplayName(),
-                onDismiss = onDismiss,
+        Row(modifier = Modifier.width(620.dp).height(440.dp)) {
+            // 왼쪽 카테고리 네비게이션
+            Column(
+                modifier = Modifier
+                    .width(168.dp)
+                    .fillMaxHeight()
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                    .padding(vertical = 12.dp, horizontal = 8.dp),
+            ) {
+                Text(
+                    text = state.accountDisplayName(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                SettingsCategory.entries.forEach { category ->
+                    val isSelected = selectedCategory == category
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(MaterialTheme.shapes.small)
+                            .background(
+                                if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                else Color.Transparent
+                            )
+                            .clickable { selectedCategory = category }
+                            .padding(horizontal = 8.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(
+                            imageVector = category.icon,
+                            contentDescription = null,
+                            modifier = Modifier.size(15.dp),
+                            tint = if (isSelected) MaterialTheme.colorScheme.primary
+                                   else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = category.label,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+
+            VerticalDivider()
+
+            // 오른쪽 콘텐츠 패널
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 20.dp, end = 12.dp, top = 16.dp, bottom = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = selectedCategory.label,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = "닫기",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                HorizontalDivider()
+                when (selectedCategory) {
+                    SettingsCategory.Appearance -> AppearanceSettingsPanel(
+                        state = state,
+                        onThemeChange = onThemeChange,
+                        onLanguageChange = onLanguageChange,
+                        onTimeFormatChange = onTimeFormatChange,
+                        onDateFormatChange = onDateFormatChange,
+                    )
+                    SettingsCategory.Account -> AccountSettingsPanel(
+                        state = state,
+                        onMarketingEmailChange = onMarketingEmailChange,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppearanceSettingsPanel(
+    state: MainStore.State,
+    onThemeChange: (AppTheme) -> Unit,
+    onLanguageChange: (AppLanguage) -> Unit,
+    onTimeFormatChange: (TimeFormat) -> Unit,
+    onDateFormatChange: (DateFormat) -> Unit,
+) {
+    Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp).verticalScroll(rememberScrollState())) {
+        SettingsGroupLabel("표시")
+        SettingsRow(label = "테마") {
+            SegmentedSelector(
+                options = AppTheme.entries,
+                selected = state.accountTheme,
+                label = { it.label },
+                onSelect = onThemeChange,
             )
-            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
-                SettingsSection(
-                    icon = Icons.Rounded.Person,
-                    title = "계정",
-                    description = "프로필, 상태, GitHub 정보를 이 화면에서 다룰 예정입니다.",
+        }
+        SettingsDivider()
+        SettingsRow(label = "언어") {
+            SegmentedSelector(
+                options = AppLanguage.entries,
+                selected = state.accountLanguage,
+                label = { it.label },
+                onSelect = onLanguageChange,
+            )
+        }
+        Spacer(modifier = Modifier.height(20.dp))
+        SettingsGroupLabel("날짜 및 시간")
+        SettingsRow(label = "시간 형식") {
+            SegmentedSelector(
+                options = TimeFormat.entries,
+                selected = state.accountTimeFormat,
+                label = { it.label },
+                onSelect = onTimeFormatChange,
+            )
+        }
+        SettingsDivider()
+        SettingsRow(label = "날짜 형식") {
+            SettingsDropdown(
+                options = DateFormat.entries,
+                selected = state.accountDateFormat,
+                label = { it.label },
+                onSelect = onDateFormatChange,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AccountSettingsPanel(
+    state: MainStore.State,
+    onMarketingEmailChange: (Boolean) -> Unit,
+) {
+    Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+        SettingsGroupLabel("이메일")
+        SettingsRow(label = "마케팅 이메일 수신") {
+            Switch(
+                checked = state.accountMarketingEmail,
+                onCheckedChange = onMarketingEmailChange,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsGroupLabel(text: String) {
+    Text(
+        text = text.uppercase(),
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+        letterSpacing = 0.8.sp,
+        modifier = Modifier.padding(bottom = 8.dp),
+    )
+}
+
+@Composable
+private fun SettingsRow(label: String, content: @Composable () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        content()
+    }
+}
+
+@Composable
+private fun SettingsDivider() {
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+}
+
+@Composable
+private fun <T> SegmentedSelector(
+    options: List<T>,
+    selected: T,
+    label: (T) -> String,
+    onSelect: (T) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .clip(MaterialTheme.shapes.small)
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f), MaterialTheme.shapes.small),
+    ) {
+        options.forEachIndexed { index, option ->
+            val isSelected = option == selected
+            Box(
+                modifier = Modifier
+                    .background(
+                        if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                        else Color.Transparent
+                    )
+                    .clickable { onSelect(option) }
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = label(option),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                SettingsSection(
-                    icon = Icons.Rounded.Notifications,
-                    title = "알림",
-                    description = "방해금지 시간과 데스크톱 알림 정책을 이어서 연결합니다.",
-                )
-                SettingsSection(
-                    icon = Icons.Rounded.Tune,
-                    title = "화면",
-                    description = "사이드바 폭, 테마, 창 동작 같은 클라이언트 설정을 관리합니다.",
+            }
+            if (index < options.lastIndex) {
+                VerticalDivider(
+                    modifier = Modifier.height(32.dp),
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f),
                 )
             }
         }
@@ -1286,52 +1566,54 @@ private fun SettingsDialog(
 }
 
 @Composable
-private fun SettingsSection(
-    icon: ImageVector,
-    title: String,
-    description: String,
+private fun <T> SettingsDropdown(
+    options: List<T>,
+    selected: T,
+    label: (T) -> String,
+    onSelect: (T) -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Box(
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        Row(
             modifier = Modifier
-                .size(30.dp)
                 .clip(MaterialTheme.shapes.small)
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)),
-            contentAlignment = Alignment.Center,
+                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f), MaterialTheme.shapes.small)
+                .clickable { expanded = true }
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                modifier = Modifier.size(17.dp),
-                tint = MaterialTheme.colorScheme.primary,
-            )
-        }
-        Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = title,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
+                text = label(selected),
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            Spacer(modifier = Modifier.height(3.dp))
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Icon(
+                imageVector = Icons.Rounded.ExpandMore,
+                contentDescription = null,
+                modifier = Modifier.size(15.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Icon(
-            imageVector = Icons.Rounded.ChevronRight,
-            contentDescription = null,
-            modifier = Modifier.size(18.dp).padding(top = 2.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-        )
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = label(option),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = if (option == selected) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (option == selected) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurface,
+                        )
+                    },
+                    onClick = { onSelect(option); expanded = false },
+                )
+            }
+        }
     }
 }
 
