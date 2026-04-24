@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -35,17 +36,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.akuleshov7.ktoml.Toml
 import coworkappclient.composeapp.generated.resources.Res
 import coworkappclient.composeapp.generated.resources.logo_cowork
 import kotlinx.coroutines.delay
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import org.jetbrains.compose.resources.painterResource
 
-@Serializable
-private data class CoworkFactsConfig(val facts: List<String>)
+// facts = ["...", "...", ...] 형태의 TOML 배열을 파싱
+private fun parseTomlStringList(content: String): List<String> =
+    Regex(""""((?:[^"\\]|\\.)*)"""").findAll(content)
+        .map { it.groupValues[1] }
+        .toList()
 
 @OptIn(ExperimentalResourceApi::class)
 @Composable
@@ -56,10 +57,8 @@ fun ReconnectingScreen(retryIn: Long) {
 
     LaunchedEffect(Unit) {
         try {
-            val bytes = Res.readBytes("files/cowork_facts.toml")
-            val content = bytes.decodeToString()
-            @Suppress("DEPRECATION")
-            facts = Toml.decodeFromString<CoworkFactsConfig>(content).facts
+            val content = Res.readBytes("files/cowork_facts.toml").decodeToString()
+            facts = parseTomlStringList(content)
         } catch (_: Exception) {
             // 파싱 실패 시 빈 리스트 유지
         }
@@ -112,15 +111,16 @@ fun ReconnectingScreen(retryIn: Long) {
             Spacer(Modifier.height(20.dp))
 
             Text(
-                text = "서버에 연결하는 중" + ".".repeat(dotCount),
+                text = "서버에 연결할 수 없습니다",
                 fontSize = 14.sp,
-                color = Color(0xFF878C91),
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFFED4245),
             )
 
             Spacer(Modifier.height(6.dp))
 
             Text(
-                text = if (retryIn > 0) "${retryIn}초 후 재시도" else "연결 시도 중...",
+                text = if (retryIn > 0) "${retryIn}초 후 재시도" else "재연결 시도 중" + ".".repeat(dotCount),
                 fontSize = 12.sp,
                 color = Color(0xFF4E5058),
             )
@@ -131,16 +131,6 @@ fun ReconnectingScreen(retryIn: Long) {
 
             Spacer(Modifier.height(20.dp))
 
-            Text(
-                text = "COWORK 이야기",
-                fontSize = 10.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Color(0xFF4E5058),
-                letterSpacing = 1.sp,
-            )
-
-            Spacer(Modifier.height(10.dp))
-
             if (facts.isNotEmpty()) {
                 AnimatedContent(
                     targetState = factIndex,
@@ -150,7 +140,7 @@ fun ReconnectingScreen(retryIn: Long) {
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(40.dp),
+                        .heightIn(min = 36.dp),
                     contentAlignment = Alignment.Center,
                     label = "factSlide",
                 ) { idx ->
@@ -163,7 +153,7 @@ fun ReconnectingScreen(retryIn: Long) {
                     )
                 }
             } else {
-                Spacer(Modifier.height(40.dp))
+                Spacer(Modifier.height(36.dp))
             }
         }
     }

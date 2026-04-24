@@ -75,8 +75,6 @@ kotlin {
             implementation(libs.kotlinx.serializationJson)
             implementation(libs.kotlinx.coroutinesCore)
 
-            // TOML
-            implementation(libs.ktoml.core)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
