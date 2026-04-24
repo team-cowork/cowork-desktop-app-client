@@ -55,10 +55,14 @@ fun ReconnectingScreen(retryIn: Long) {
     var dotCount by remember { mutableStateOf(1) }
 
     LaunchedEffect(Unit) {
-        val bytes = Res.readBytes("files/cowork_facts.toml")
-        val content = bytes.decodeToString()
-        @Suppress("DEPRECATION")
-        facts = Toml.decodeFromString<CoworkFactsConfig>(content).facts
+        try {
+            val bytes = Res.readBytes("files/cowork_facts.toml")
+            val content = bytes.decodeToString()
+            @Suppress("DEPRECATION")
+            facts = Toml.decodeFromString<CoworkFactsConfig>(content).facts
+        } catch (_: Exception) {
+            // 파싱 실패 시 빈 리스트 유지
+        }
     }
 
     LaunchedEffect(Unit) {

@@ -41,14 +41,28 @@ class ConnectivityMonitor(
             } else {
                 val backoffMs = backoffForAttempt(failureCount)
                 failureCount++
-                val totalSeconds = backoffMs / 1_000L
-                for (remaining in totalSeconds downTo 1L) {
-                    _retryIn.value = remaining
-                    delay(1_000L)
-                }
-                _retryIn.value = 0
+                val recoveredEarly = waitWithEarlyRecovery(backoffMs)
+                if (recoveredEarly) failureCount = 0
             }
         }
+    }
+
+    // 백오프 대기 중에도 BACKOFF_POLL_MS 간격으로 헬스체크 → 복구 시 즉시 재연결
+    private suspend fun waitWithEarlyRecovery(backoffMs: Long): Boolean {
+        val endTimeMs = System.currentTimeMillis() + backoffMs
+        while (true) {
+            val remainingMs = endTimeMs - System.currentTimeMillis()
+            if (remainingMs <= 0) break
+            _retryIn.value = (remainingMs / 1_000L).coerceAtLeast(1L)
+            delay(minOf(BACKOFF_POLL_MS, remainingMs))
+            if (checkHealth()) {
+                _isConnected.value = true
+                _retryIn.value = 0
+                return true
+            }
+        }
+        _retryIn.value = 0
+        return false
     }
 
     // 5->5->5->10->15->30->30->45->60->60->80->80->random(80..120,5회)->120 forever
@@ -64,9 +78,10 @@ class ConnectivityMonitor(
         else         -> 120_000L
     }
 
+    // 5xx는 서버 오류이므로 연결 불가로 판단, 4xx는 게이트웨이가 살아있으므로 연결 가능
     private suspend fun checkHealth(): Boolean = try {
-        httpClient.get(healthUrl)
-        true
+        val response = httpClient.get(healthUrl)
+        response.status.value < 500
     } catch (_: ClientRequestException) {
         true
     } catch (_: Exception) {
@@ -75,5 +90,6 @@ class ConnectivityMonitor(
 
     companion object {
         private const val CONNECTED_POLL_MS = 30_000L
+        private const val BACKOFF_POLL_MS = 5_000L
     }
 }
