@@ -71,7 +71,7 @@ class ConnectivityMonitor(
             while (!recovered.value) {
                 val remainingMs = endTimeMs - System.currentTimeMillis()
                 if (remainingMs <= 0) break
-                _retryIn.value = (remainingMs / 1_000L).coerceAtLeast(1L)
+                _retryIn.value = ((remainingMs + 999L) / 1_000L).coerceAtLeast(1L)
                 delay(1_000L)
             }
         } finally {
