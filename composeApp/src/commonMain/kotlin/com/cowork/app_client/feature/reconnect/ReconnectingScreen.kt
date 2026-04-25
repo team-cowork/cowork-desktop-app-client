@@ -56,7 +56,6 @@ private fun parseTomlStringList(content: String): List<String> {
         .toList()
 }
 
-// 극히 낮은 확률(1/CURSED_ODDS)로 등장하는 지독한 문장들
 private val cursedFacts = listOf(
     "솔직히 이메일로 다 됩니다.",
     "서버 담당자는 아마 지금 자고 있을 겁니다.",
@@ -65,18 +64,22 @@ private val cursedFacts = listOf(
     "서버가 응답하지 않는 건 당신을 싫어해서가 아닙니다. 그냥 죽은 겁니다.",
     "cowork 없이도 구글 드라이브는 잘 됩니다. 생각해보세요.",
     "개발팀 누군가가 오늘 커밋을 push 했을 가능성이 있습니다.",
+    "종윤이를 변기에 넣고 내려",
+    "안녕 홍진아 나는 기니피그야",
+    "안녕 재희야 나는 기니피그야",
+    "열정있는 프론트엔드 개발자 나재희입니다. 제 꿈은 언젠가 서버도 고치는 거예요.",
+    "열정 있는 프론트엔드 개발자를 모집 중입니다."
 )
 
 private const val MAX_TOML_BYTES = 16_000
 private const val MAX_FACTS = 100
-private const val CURSED_ODDS = 150 // 약 0.67% 확률
+private const val CURSED_ODDS = 150
 
 @OptIn(ExperimentalResourceApi::class)
 @Composable
 fun ReconnectingScreen(retryIn: Long) {
     var facts by remember { mutableStateOf(emptyList<String>()) }
     var factIndex by remember { mutableIntStateOf(0) }
-    // AnimatedContent의 키 — factIndex와 cursed 여부를 하나의 정수로 구분
     var factTick by remember { mutableIntStateOf(0) }
     var displayFact by remember { mutableStateOf("") }
     var dotCount by remember { mutableStateOf(1) }
@@ -85,17 +88,16 @@ fun ReconnectingScreen(retryIn: Long) {
         try {
             val content = Res.readBytes("files/cowork_facts.toml").decodeToString()
             facts = parseTomlStringList(content)
-            if (facts.isNotEmpty()) displayFact = facts[0]
         } catch (_: Exception) {
-            // 파싱 실패 시 빈 리스트 유지
+            // 파싱 실패 시 fallback
         }
+        displayFact = facts.firstOrNull() ?: "cowork는 광주소프트웨어마이스터고등학교 학생들이 만들고 있어요."
     }
 
     LaunchedEffect(Unit) {
         while (true) {
             delay(6_000L)
             if (facts.isNotEmpty()) {
-                // 1/CURSED_ODDS 확률로 저주받은 문장 삽입, 아니면 순서대로 순환
                 val next = if (Random.nextInt(CURSED_ODDS) == 0) {
                     cursedFacts.random()
                 } else {
