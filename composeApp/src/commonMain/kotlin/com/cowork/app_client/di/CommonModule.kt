@@ -4,6 +4,7 @@ import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.cowork.app_client.config.AppConfig
 import com.cowork.app_client.data.network.createHttpClient
 import com.cowork.app_client.data.network.createHttpEngine
+import com.cowork.app_client.data.network.ConnectivityMonitor
 import com.cowork.app_client.data.remote.AuthApi
 import com.cowork.app_client.data.remote.ChannelApi
 import com.cowork.app_client.data.remote.ChatApi
@@ -28,6 +29,7 @@ val commonModule = module {
     single { DefaultStoreFactory() }
     single { createHttpEngine() }
     single { createHttpClient(get()) }
+    single<ConnectivityMonitor> { ConnectivityMonitor(httpClient = get(), healthUrl = "${AppConfig.COWORK_API_BASE_URL}/health") }
     single { AuthApi(client = get(), baseUrl = AppConfig.COWORK_API_BASE_URL) }
     single { TeamApi(client = get(), baseUrl = AppConfig.COWORK_API_BASE_URL) }
     single { ChannelApi(client = get(), baseUrl = AppConfig.COWORK_API_BASE_URL) }
