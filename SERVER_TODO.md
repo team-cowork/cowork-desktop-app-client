@@ -1,152 +1,102 @@
 # 서버 구현 필요 항목
 
-클라이언트 기능 완성을 위해 서버에서 추가로 구현이 필요한 항목을 정리합니다.
-각 항목은 우선순위 순으로 나열했습니다.
+클라이언트와의 계약을 맞추기 위해 서버에서 추가·수정이 필요한 항목입니다.
 
 ---
 
-## 1. 채널-프로젝트 귀속 관계 (cowork-channel)
+## 1. MeetingNote `createdAt` / `updatedAt` 직렬화 형식 (cowork-channel)
 
-### 배경
-현재 채널은 `teamId`만 가지고 있고, 프로젝트 하위에 속하는 개념이 없습니다.
-클라이언트에서는 채널을 프로젝트 아래로 드래그하여 귀속시키는 기능이 필요합니다.
+### 문제
+Spring Boot 기본 Jackson 설정에서 `LocalDateTime`은 JSON 배열 `[2024,1,1,12,0,0]`로 직렬화됩니다.
+클라이언트는 ISO-8601 문자열 (`"2024-01-01T12:00:00"`) 형식을 기대합니다.
 
 ### 필요 작업
+`application.yml`에 아래 설정 추가 (또는 `ObjectMapper` 빈 설정):
 
-**엔티티 변경 — `cowork-channel/Channel.kt`**
-```kotlin
-@Column(name = "project_id", nullable = true)
-var projectId: Long? = null
+```yaml
+spring:
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
 ```
 
-**API 추가**
-- `GET /projects/{projectId}/channels` — 프로젝트에 귀속된 채널 목록 조회
-- `PATCH /channels/{channelId}` body에 `projectId` 필드 추가 (null이면 프로젝트에서 분리)
+영향 범위: `MeetingNoteResponse.createdAt`, `MeetingNoteResponse.updatedAt`
 
-**Response 변경 — `ChannelResponse`**
+---
+
+## 2. Spring Cloud Gateway — 프로젝트 reorder 라우팅 누락 (cowork-gateway)
+
+### 문제
+`PATCH /api/teams/{teamId}/projects/reorder` 요청이 Gateway에서 `cowork-project` 서비스로 라우팅되지 않고
+다른 서비스(또는 404)로 떨어집니다.
+
+### 필요 작업
+Gateway 라우팅 설정에 아래 경로 추가:
+
+```yaml
+- id: cowork-project-reorder
+  uri: lb://cowork-project
+  predicates:
+    - Path=/api/teams/*/projects/reorder
+  filters:
+    - RewritePath=/api/(?<segment>.*), /${segment}
+```
+
+채널 reorder(`/api/teams/*/channels/reorder` → `cowork-channel`)도 동일하게 등록되어 있는지 확인 필요.
+
+---
+
+## 3. FileShare 채널 — 파일 목록 조회 API (cowork-chat)
+
+### 배경
+`FILE_SHARE` 뷰 타입 채널은 파일 업로드·다운로드 전용 채널입니다.
+파일 업로드는 `POST /channels/{channelId}/files/presigned-url`로 가능하지만,
+업로드된 파일 목록을 조회하는 API가 없어 클라이언트 UI를 완성할 수 없습니다.
+
+### 필요 API
+
+| 메서드 | 경로 | 설명 |
+|-------|------|------|
+| `GET` | `/channels/{channelId}/files` | 파일 목록 조회 |
+| `DELETE` | `/channels/{channelId}/files/{fileId}` | 파일 삭제 |
+
+**응답 예시 (`GET`)**
 ```json
-{
-  "id": 1,
-  "teamId": 10,
-  "projectId": 5,   // 추가 (nullable)
-  ...
-}
+[
+  {
+    "id": 1,
+    "channelId": 10,
+    "name": "기획서_v2.pdf",
+    "size": 204800,
+    "contentType": "application/pdf",
+    "uploadedBy": 3,
+    "uploadedAt": "2024-06-01T10:30:00",
+    "downloadUrl": "https://..."
+  }
+]
 ```
 
 ---
 
-## 2. 채널·프로젝트 순서(position) 관리 (cowork-channel / cowork-project)
+## 4. AccountShare 채널 — 설계 및 구현 (신규 or cowork-user)
 
 ### 배경
-클라이언트에서 채널·프로젝트를 드래그앤드롭으로 순서를 변경할 수 있어야 합니다.
-현재는 서버에 position 필드가 없어 클라이언트 로컬 상태에서만 임시 유지됩니다 (새로고침 시 초기화).
+`ACCOUNT_SHARE` 뷰 타입 채널은 팀원의 GitHub, Notion, Jira 등 외부 서비스 계정을 공유하는 채널입니다.
+서버·클라이언트 모두 미구현 상태이며, 먼저 데이터 모델 설계가 필요합니다.
 
-### 필요 작업
+### 설계 필요 사항
+- 공유 계정 타입 enum (`GITHUB`, `NOTION`, `JIRA`, `FIGMA`, `CUSTOM` 등)
+- 계정 정보 저장 엔티티 (`AccountEntry`: id, channelId, type, label, value, addedBy)
+- 민감 정보(비밀번호, 토큰) 암호화 저장 여부 결정
 
-**엔티티 변경**
-- `Channel` : `@Column val position: Int = 0` 추가
-- `Project` : `@Column val position: Int = 0` 추가
+### 필요 API (설계 확정 후)
 
-**API 추가**
-- `PATCH /teams/{teamId}/channels/reorder`
-  ```json
-  { "orderedChannelIds": [3, 1, 5, 2] }
-  ```
-- `PATCH /teams/{teamId}/projects/reorder`
-  ```json
-  { "orderedProjectIds": [7, 2, 9] }
-  ```
-
-**조회 API 정렬 변경**
-- 기존 `findAllByTeamIdOrderByIdAsc()` → `findAllByTeamIdOrderByPositionAsc()`
-
----
-
-## 3. 회의록(MeetingNote) 채널 기능 (cowork-channel 또는 신규 서비스)
-
-### 배경
-`MEETING_NOTE` 뷰 타입은 정의되어 있으나 관련 비즈니스 로직이 전혀 없습니다.
-회의록은 정해진 템플릿(제목, 참석자, 안건, 결정사항 등)에 따라 빈칸을 채워 저장하는 문서형 채널입니다.
-
-### 필요 작업
-
-**신규 엔티티**
-```kotlin
-// 회의록 템플릿 (채널별 1개 고정 또는 선택 가능)
-MeetingNoteTemplate(id, channelId, sections: List<TemplateSection>)
-TemplateSection(id, templateId, title, placeholder, isRequired)
-
-// 제출된 회의록 문서
-MeetingNote(id, channelId, authorId, title, createdAt)
-MeetingNoteField(id, noteId, sectionId, content)
-```
-
-**API**
-- `GET /channels/{channelId}/meeting-notes` — 회의록 목록 (페이지네이션)
-- `POST /channels/{channelId}/meeting-notes` — 회의록 작성
-- `GET /channels/{channelId}/meeting-notes/{noteId}` — 상세 조회
-- `PATCH /channels/{channelId}/meeting-notes/{noteId}` — 수정
-- `DELETE /channels/{channelId}/meeting-notes/{noteId}` — 삭제
-- `GET /channels/{channelId}/meeting-note-template` — 템플릿 조회
-- `PUT /channels/{channelId}/meeting-note-template` — 템플릿 설정
-
----
-
-## 4. 기본 회의록 템플릿 (cowork-channel)
-
-### 배경
-서버에서 회의록 채널 생성 시 기본 템플릿을 자동으로 생성해야 합니다.
-
-### 기본 템플릿 섹션 (예시)
-| 섹션 | 플레이스홀더 | 필수 여부 |
-|------|------------|---------|
-| 회의 제목 | "회의 제목을 입력하세요" | ✅ |
-| 일시 / 장소 | "2024-01-01 14:00 / 대회의실" | ✅ |
-| 참석자 | "홍길동, 김철수, ..." | ✅ |
-| 안건 | "논의할 주제를 입력하세요" | ✅ |
-| 결정사항 | "합의된 내용을 입력하세요" | ❌ |
-| 다음 회의 일정 | "다음 회의 일정을 입력하세요" | ❌ |
-
----
-
-## 5. Socket.io JWT 인증 (cowork-chat)
-
-### 배경
-클라이언트의 텍스트 채널 메시지 입력이 현재 비활성화 상태입니다.
-Socket.io 연결 시 JWT Bearer 토큰 인증이 필요합니다.
-
-### 현재 상태
-- `cowork-chat` NestJS 서버에 Socket.io Gateway가 구현되어 있음
-- 클라이언트에서 Socket.io 연결 시 `auth: { token: "<JWT>" }` 전달 예정
-
-### 확인 필요
-- Gateway에서 `@ConnectedSocket()` 핸들러가 `auth.token`을 검증하는지 확인
-- 인증 실패 시 적절한 disconnect 이벤트 발송 여부 확인
-- 연결 성공 후 `room: channelId` join 처리 여부 확인
-
----
-
-## 6. 파일 공유(FileShare) 채널 (cowork-chat 또는 신규)
-
-### 배경
-`FILE_SHARE` 뷰 타입 채널은 파일 업로드/다운로드 전용 채널입니다.
-현재 `cowork-chat`에 MinIO presigned URL을 통한 파일 업로드 API가 있으나,
-FileShare 채널 전용 파일 목록 조회 API가 필요합니다.
-
-### 필요 작업
-- `GET /channels/{channelId}/files` — 파일 목록 조회 (이름, 크기, 업로더, 업로드 일시)
-- 기존 `POST /channels/{channelId}/files/presigned-url` 활용 가능
-
----
-
-## 7. 계정 공유(AccountShare) 채널 (신규 서비스 또는 cowork-user)
-
-### 배경
-`ACCOUNT_SHARE` 뷰 타입 채널은 팀원의 GitHub 계정, 외부 서비스 계정 등을 공유하는 채널입니다.
-
-### 필요 작업 (설계 필요)
-- 공유할 계정 타입 정의 (GitHub / Notion / Jira / 기타)
-- 계정 정보 저장 엔티티 및 CRUD API
+| 메서드 | 경로 | 설명 |
+|-------|------|------|
+| `GET` | `/channels/{channelId}/accounts` | 계정 목록 조회 |
+| `POST` | `/channels/{channelId}/accounts` | 계정 추가 |
+| `PATCH` | `/channels/{channelId}/accounts/{accountId}` | 계정 수정 |
+| `DELETE` | `/channels/{channelId}/accounts/{accountId}` | 계정 삭제 |
 
 ---
 
@@ -154,10 +104,7 @@ FileShare 채널 전용 파일 목록 조회 API가 필요합니다.
 
 | # | 항목 | 서비스 | 우선순위 |
 |---|------|--------|---------|
-| 1 | 채널-프로젝트 귀속 (`projectId`) | cowork-channel | 🔴 높음 |
-| 2 | 채널·프로젝트 순서 (position) | cowork-channel / cowork-project | 🔴 높음 |
-| 3 | 회의록 API (문서 CRUD) | cowork-channel 또는 신규 | 🟡 중간 |
-| 4 | 기본 회의록 템플릿 자동 생성 | cowork-channel | 🟡 중간 |
-| 5 | Socket.io JWT 인증 확인 | cowork-chat | 🔴 높음 |
-| 6 | FileShare 채널 파일 목록 API | cowork-chat | 🟢 낮음 |
-| 7 | AccountShare 채널 설계·구현 | TBD | 🟢 낮음 |
+| 1 | `LocalDateTime` ISO-8601 직렬화 설정 | cowork-channel | 🔴 높음 |
+| 2 | Gateway 프로젝트 reorder 라우팅 추가 | cowork-gateway | 🔴 높음 |
+| 3 | FileShare 파일 목록 / 삭제 API | cowork-chat | 🟡 중간 |
+| 4 | AccountShare 채널 설계 및 구현 | TBD | 🟢 낮음 |

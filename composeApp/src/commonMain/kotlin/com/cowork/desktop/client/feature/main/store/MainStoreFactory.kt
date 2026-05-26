@@ -136,7 +136,10 @@ class MainStoreFactory(
 
         private fun Throwable.handleIfSessionExpired(): Boolean {
             if (this !is SessionExpiredException) return false
-            publish(Label.SignedOut)
+            scope.launch {
+                runCatching { authRepository.signOut() }
+                publish(Label.SignedOut)
+            }
             return true
         }
 
