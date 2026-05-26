@@ -63,6 +63,7 @@ kotlin {
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutinesSwing)
             implementation(libs.ktor.clientCio)
+            implementation(libs.socketio.client)
         }
     }
 }

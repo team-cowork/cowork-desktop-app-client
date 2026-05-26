@@ -61,13 +61,21 @@ class ChannelApi(
         name: String? = null,
         description: String? = null,
         isPrivate: Boolean? = null,
+        projectId: Long? = null,
     ): Channel =
         client.patch("$baseUrl/channels/$channelId") {
             bearerAuth(accessToken)
             contentType(ContentType.Application.Json)
-            setBody(UpdateChannelRequest(name = name, description = description, isPrivate = isPrivate))
+            setBody(UpdateChannelRequest(name = name, description = description, isPrivate = isPrivate, projectId = projectId))
         }.body<ApiResponse<ChannelResponse>>().data?.toDomain()
             ?: error("채널 수정 응답에 data가 없습니다")
+
+    suspend fun reorderChannels(accessToken: String, teamId: Long, orderedChannelIds: List<Long>): List<Channel> =
+        client.patch("$baseUrl/teams/$teamId/channels/reorder") {
+            bearerAuth(accessToken)
+            contentType(ContentType.Application.Json)
+            setBody(ReorderChannelsRequest(orderedChannelIds))
+        }.body<ApiResponse<List<ChannelResponse>>>().data.orEmpty().map(ChannelResponse::toDomain)
 
     suspend fun deleteChannel(accessToken: String, channelId: Long) {
         client.delete("$baseUrl/channels/$channelId") {
@@ -109,7 +117,11 @@ class ChannelApi(
         val name: String?,
         val description: String?,
         val isPrivate: Boolean?,
+        val projectId: Long?,
     )
+
+    @Serializable
+    private data class ReorderChannelsRequest(val orderedChannelIds: List<Long>)
 
     @Serializable
     private data class AddMemberRequest(val userId: Long)
@@ -133,20 +145,24 @@ class ChannelApi(
     private data class ChannelResponse(
         val id: Long,
         val teamId: Long,
+        val projectId: Long? = null,
         val name: String,
         val type: String,
         val viewType: String,
         val description: String? = null,
         @SerialName("isPrivate")
         val isPrivate: Boolean = false,
+        val position: Int = 0,
     ) {
         fun toDomain(): Channel = Channel(
             id = id,
             teamId = teamId,
+            projectId = projectId,
             name = name,
             type = toChannelType(type, viewType),
             description = description,
             isPrivate = isPrivate,
+            position = position,
         )
     }
 }

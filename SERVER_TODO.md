@@ -1,152 +1,224 @@
-# 서버 구현 필요 항목
+# 서버 구현 필요 항목 (전면 감사)
 
-클라이언트 기능 완성을 위해 서버에서 추가로 구현이 필요한 항목을 정리합니다.
-각 항목은 우선순위 순으로 나열했습니다.
+클라이언트와의 계약을 맞추기 위해 서버에서 추가·수정이 필요한 항목입니다.  
+Discord/Slack 기준으로 있어야 할 기능을 전수 점검한 결과입니다.
 
 ---
 
-## 1. 채널-프로젝트 귀속 관계 (cowork-channel)
+## 🔴 즉시 필요 (현재 기능 버그·누락)
 
-### 배경
-현재 채널은 `teamId`만 가지고 있고, 프로젝트 하위에 속하는 개념이 없습니다.
-클라이언트에서는 채널을 프로젝트 아래로 드래그하여 귀속시키는 기능이 필요합니다.
-
-### 필요 작업
-
-**엔티티 변경 — `cowork-channel/Channel.kt`**
-```kotlin
-@Column(name = "project_id", nullable = true)
-var projectId: Long? = null
+### 1. MeetingNote `createdAt` / `updatedAt` 직렬화 형식 (cowork-channel)
+Spring Boot 기본 Jackson이 `LocalDateTime`을 배열 `[2024,1,1,12,0,0]`로 직렬화.  
+클라이언트는 ISO-8601 문자열 `"2024-01-01T12:00:00"` 기대.
+```yaml
+spring.jackson.serialization.write-dates-as-timestamps: false
 ```
 
-**API 추가**
-- `GET /projects/{projectId}/channels` — 프로젝트에 귀속된 채널 목록 조회
-- `PATCH /channels/{channelId}` body에 `projectId` 필드 추가 (null이면 프로젝트에서 분리)
+### 2. Gateway — 프로젝트 reorder 라우팅 누락 (cowork-gateway)
+`PATCH /api/teams/{teamId}/projects/reorder`가 올바른 서비스로 라우팅되지 않음.
+```yaml
+- id: cowork-project-reorder
+  uri: lb://cowork-project
+  predicates:
+    - Path=/api/teams/*/projects/reorder
+```
 
-**Response 변경 — `ChannelResponse`**
+---
+
+## 🟠 팀(서버) 관리
+
+### 3. 팀 정보 수정 API (cowork-team 또는 cowork-channel)
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `PATCH` | `/teams/{teamId}` | 팀 이름·설명 수정 |
+| `POST` | `/teams/{teamId}/icon` | 팀 아이콘 이미지 교체 (multipart) |
+| `DELETE` | `/teams/{teamId}` | 팀 삭제 (Owner만) |
+
+**응답**: 수정된 `TeamResponse`
+
+### 4. 팀 멤버 관리 API
+현재 `GET /teams/{teamId}/members`가 `userId` 배열만 반환. 역할·닉네임 정보 포함 필요.
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `GET` | `/teams/{teamId}/members` | 멤버 목록 (userId, role, joinedAt) — **응답 확장** |
+| `DELETE` | `/teams/{teamId}/members/{userId}` | 멤버 추방 (Owner/Admin만) |
+| `PATCH` | `/teams/{teamId}/members/{userId}/role` | 역할 변경 (Owner만) |
+| `DELETE` | `/teams/{teamId}/members/me` | 팀 탈퇴 (본인) |
+
+### 5. 팀 초대 링크 API
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `POST` | `/teams/{teamId}/invites` | 초대 링크 생성 (만료시간 포함) |
+| `GET` | `/teams/{teamId}/invites` | 활성 초대 링크 목록 |
+| `DELETE` | `/teams/{teamId}/invites/{inviteCode}` | 초대 링크 무효화 |
+| `POST` | `/teams/join/{inviteCode}` | 초대 코드로 팀 가입 |
+
+---
+
+## 🟠 채널 관리
+
+### 6. 채널 수정·삭제 API (cowork-channel)
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `PATCH` | `/channels/{channelId}` | 채널 이름·설명·공개여부 수정 (Admin+) |
+| `DELETE` | `/channels/{channelId}` | 채널 삭제 (Admin+) |
+
+**요청 예시 (PATCH)**
+```json
+{ "name": "새이름", "description": "설명", "isPrivate": false }
+```
+
+### 7. 채널별 권한 설정 (cowork-channel)
+Discord의 채널별 role override 수준은 아니더라도 최소한:
+- 특정 멤버를 비공개 채널에 초대: `POST /channels/{channelId}/members/{userId}`
+- 비공개 채널 멤버 제거: `DELETE /channels/{channelId}/members/{userId}`
+
+### 8. 채널 메시지 고정 (cowork-chat)
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `POST` | `/channels/{channelId}/pins/{messageId}` | 메시지 고정 |
+| `DELETE` | `/channels/{channelId}/pins/{messageId}` | 고정 해제 |
+| `GET` | `/channels/{channelId}/pins` | 고정 메시지 목록 |
+
+---
+
+## 🟠 프로젝트 관리
+
+### 9. 프로젝트 수정·삭제·보관 API (cowork-channel 또는 cowork-project)
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `PATCH` | `/projects/{projectId}` | 이름·설명 수정 |
+| `PATCH` | `/projects/{projectId}/status` | 보관(ARCHIVED) / 활성(ACTIVE) 전환 |
+| `DELETE` | `/projects/{projectId}` | 프로젝트 삭제 (Admin+) |
+
+---
+
+## 🟡 메시지 기능
+
+### 10. 메시지 반응(Emoji Reaction) (cowork-chat)
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `POST` | `/channels/{channelId}/messages/{messageId}/reactions` | 반응 추가 `{ "emoji": "👍" }` |
+| `DELETE` | `/channels/{channelId}/messages/{messageId}/reactions/{emoji}` | 반응 제거 |
+
+**WebSocket 이벤트**: `message:reaction:added`, `message:reaction:removed`
+
+### 11. 스레드 메시지 `parentMessageId` 필터 (cowork-chat)
+`GET /channels/{channelId}/messages?parentMessageId={id}` 파라미터 추가 필요.  
+현재 클라이언트는 이미 로드된 메시지에서 클라이언트 필터링으로 임시 처리.
+
+### 12. 파일·이미지 첨부 (cowork-chat)
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `POST` | `/channels/{channelId}/files/presigned-url` | S3 업로드용 presigned URL 발급 |
+| `GET` | `/channels/{channelId}/files` | 파일 목록 조회 (FileShare 채널용) |
+| `DELETE` | `/channels/{channelId}/files/{fileId}` | 파일 삭제 |
+
+**메시지 모델에 `attachments` 배열 필드 추가 필요**:
+```json
+{ "attachments": [{ "type": "image", "url": "...", "name": "photo.png", "size": 102400 }] }
+```
+
+### 13. @멘션 지원
+- 메시지 내 `@userId` 파싱 → 알림 트리거
+- `GET /users/search?query={q}&teamId={teamId}` — 멘션 자동완성용 멤버 검색 API
+
+---
+
+## 🟡 알림
+
+### 14. 읽음 상태 및 미읽 카운트 (cowork-chat 또는 신규)
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `POST` | `/channels/{channelId}/read` | 채널 마지막 읽음 시각 업데이트 |
+| `GET` | `/teams/{teamId}/unread` | 팀 내 채널별 미읽 수 조회 |
+
+**WebSocket 이벤트**: `channel:unread:updated`
+
+### 15. 알림 설정 (preference 모듈 확장)
+현재 preference는 테마·언어·시간형식·마케팅이메일만 저장.  
+추가 필요:
 ```json
 {
-  "id": 1,
-  "teamId": 10,
-  "projectId": 5,   // 추가 (nullable)
-  ...
+  "notificationLevel": "ALL | MENTIONS | MUTE",
+  "channelOverrides": [{ "channelId": 1, "level": "MUTE" }],
+  "desktopNotifications": true,
+  "soundEnabled": true
 }
 ```
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `PATCH` | `/preferences/notifications` | 알림 설정 변경 |
+| `PATCH` | `/preferences/channels/{channelId}/notifications` | 채널별 알림 오버라이드 |
 
 ---
 
-## 2. 채널·프로젝트 순서(position) 관리 (cowork-channel / cowork-project)
+## 🟡 스레드
 
-### 배경
-클라이언트에서 채널·프로젝트를 드래그앤드롭으로 순서를 변경할 수 있어야 합니다.
-현재는 서버에 position 필드가 없어 클라이언트 로컬 상태에서만 임시 유지됩니다 (새로고침 시 초기화).
-
-### 필요 작업
-
-**엔티티 변경**
-- `Channel` : `@Column val position: Int = 0` 추가
-- `Project` : `@Column val position: Int = 0` 추가
-
-**API 추가**
-- `PATCH /teams/{teamId}/channels/reorder`
-  ```json
-  { "orderedChannelIds": [3, 1, 5, 2] }
-  ```
-- `PATCH /teams/{teamId}/projects/reorder`
-  ```json
-  { "orderedProjectIds": [7, 2, 9] }
-  ```
-
-**조회 API 정렬 변경**
-- 기존 `findAllByTeamIdOrderByIdAsc()` → `findAllByTeamIdOrderByPositionAsc()`
+### 16. 메시지에서 스레드 생성 (cowork-channel + cowork-chat)
+현재 스레드는 서버에서만 생성 가능한 구조인지 클라이언트에서 생성 가능한지 확인 필요.  
+만약 클라이언트 생성이 불가능하다면:
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `POST` | `/channels/{channelId}/threads` | 특정 메시지 기반 스레드 생성 `{ "name": "...", "parentMessageId": "..." }` |
+| `PATCH` | `/threads/{threadId}` | 스레드 이름 수정 / 보관 처리 |
 
 ---
 
-## 3. 회의록(MeetingNote) 채널 기능 (cowork-channel 또는 신규 서비스)
+## 🟡 사용자 프로필 확장
 
-### 배경
-`MEETING_NOTE` 뷰 타입은 정의되어 있으나 관련 비즈니스 로직이 전혀 없습니다.
-회의록은 정해진 템플릿(제목, 참석자, 안건, 결정사항 등)에 따라 빈칸을 채워 저장하는 문서형 채널입니다.
+### 17. 프로필 필드 직접 수정 API (cowork-user)
+현재 프로필은 조회만 가능하고 수정 API가 클라이언트에 없음.
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `PATCH` | `/users/me` | 닉네임·이름·설명·GitHub 수정 |
+| `PATCH` | `/users/me/status` | 상태 + 커스텀 상태 메시지 설정 (현재 상태만 변경 가능) |
 
-### 필요 작업
-
-**신규 엔티티**
-```kotlin
-// 회의록 템플릿 (채널별 1개 고정 또는 선택 가능)
-MeetingNoteTemplate(id, channelId, sections: List<TemplateSection>)
-TemplateSection(id, templateId, title, placeholder, isRequired)
-
-// 제출된 회의록 문서
-MeetingNote(id, channelId, authorId, title, createdAt)
-MeetingNoteField(id, noteId, sectionId, content)
-```
-
-**API**
-- `GET /channels/{channelId}/meeting-notes` — 회의록 목록 (페이지네이션)
-- `POST /channels/{channelId}/meeting-notes` — 회의록 작성
-- `GET /channels/{channelId}/meeting-notes/{noteId}` — 상세 조회
-- `PATCH /channels/{channelId}/meeting-notes/{noteId}` — 수정
-- `DELETE /channels/{channelId}/meeting-notes/{noteId}` — 삭제
-- `GET /channels/{channelId}/meeting-note-template` — 템플릿 조회
-- `PUT /channels/{channelId}/meeting-note-template` — 템플릿 설정
+**커스텀 상태 메시지**: `{ "status": "DO_NOT_DISTURB", "message": "집중 중", "expiresAt": "..." }`
 
 ---
 
-## 4. 기본 회의록 템플릿 (cowork-channel)
+## 🟡 검색
 
-### 배경
-서버에서 회의록 채널 생성 시 기본 템플릿을 자동으로 생성해야 합니다.
-
-### 기본 템플릿 섹션 (예시)
-| 섹션 | 플레이스홀더 | 필수 여부 |
-|------|------------|---------|
-| 회의 제목 | "회의 제목을 입력하세요" | ✅ |
-| 일시 / 장소 | "2024-01-01 14:00 / 대회의실" | ✅ |
-| 참석자 | "홍길동, 김철수, ..." | ✅ |
-| 안건 | "논의할 주제를 입력하세요" | ✅ |
-| 결정사항 | "합의된 내용을 입력하세요" | ❌ |
-| 다음 회의 일정 | "다음 회의 일정을 입력하세요" | ❌ |
+### 18. 전체 검색 API
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `GET` | `/search/messages?q={query}&teamId={teamId}` | 메시지 검색 |
+| `GET` | `/search/channels?q={query}&teamId={teamId}` | 채널 검색 |
+| `GET` | `/users/search?q={query}&teamId={teamId}` | 멤버 검색 (멘션 자동완성 겸용) |
 
 ---
 
-## 5. Socket.io JWT 인증 (cowork-chat)
+## 🟢 추후 고려
 
-### 배경
-클라이언트의 텍스트 채널 메시지 입력이 현재 비활성화 상태입니다.
-Socket.io 연결 시 JWT Bearer 토큰 인증이 필요합니다.
+### 19. AccountShare 채널 설계 및 구현
+`ACCOUNT_SHARE` 타입 채널: GitHub, Notion, Jira 등 외부 계정 공유.  
+데이터 모델 설계 후 CRUD API 구현.
 
-### 현재 상태
-- `cowork-chat` NestJS 서버에 Socket.io Gateway가 구현되어 있음
-- 클라이언트에서 Socket.io 연결 시 `auth: { token: "<JWT>" }` 전달 예정
+### 20. 다이렉트 메시지(DM)
+팀 외부에서 개인 간 메시지 채널.  
+별도 DM 채널 모델 필요.
 
-### 확인 필요
-- Gateway에서 `@ConnectedSocket()` 핸들러가 `auth.token`을 검증하는지 확인
-- 인증 실패 시 적절한 disconnect 이벤트 발송 여부 확인
-- 연결 성공 후 `room: channelId` join 처리 여부 확인
+### 21. 팀 역할(Role) 시스템 고도화
+현재: `OWNER / ADMIN / MEMBER` 고정.  
+추후: 커스텀 역할 생성, 역할별 세분화된 채널 권한 설정 (Discord Permission Bit).
 
----
+### 22. 회의록(MeetingNote) 수정·삭제 및 템플릿 관리
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| `PATCH` | `/meeting-notes/{noteId}` | 회의록 수정 |
+| `DELETE` | `/meeting-notes/{noteId}` | 회의록 삭제 |
+| `POST` | `/meeting-note-templates` | 템플릿 생성 |
+| `PATCH` | `/meeting-note-templates/{id}` | 템플릿 수정 |
+| `DELETE` | `/meeting-note-templates/{id}` | 템플릿 삭제 |
 
-## 6. 파일 공유(FileShare) 채널 (cowork-chat 또는 신규)
-
-### 배경
-`FILE_SHARE` 뷰 타입 채널은 파일 업로드/다운로드 전용 채널입니다.
-현재 `cowork-chat`에 MinIO presigned URL을 통한 파일 업로드 API가 있으나,
-FileShare 채널 전용 파일 목록 조회 API가 필요합니다.
-
-### 필요 작업
-- `GET /channels/{channelId}/files` — 파일 목록 조회 (이름, 크기, 업로더, 업로드 일시)
-- 기존 `POST /channels/{channelId}/files/presigned-url` 활용 가능
-
----
-
-## 7. 계정 공유(AccountShare) 채널 (신규 서비스 또는 cowork-user)
-
-### 배경
-`ACCOUNT_SHARE` 뷰 타입 채널은 팀원의 GitHub 계정, 외부 서비스 계정 등을 공유하는 채널입니다.
-
-### 필요 작업 (설계 필요)
-- 공유할 계정 타입 정의 (GitHub / Notion / Jira / 기타)
-- 계정 정보 저장 엔티티 및 CRUD API
+### 23. WebSocket 이벤트 보강
+현재 누락된 이벤트:
+- `channel:created`, `channel:updated`, `channel:deleted` — 채널 변경 실시간 반영
+- `project:created`, `project:updated`, `project:deleted`
+- `member:joined`, `member:left`, `member:role:updated`
+- `message:pinned`, `message:unpinned`
+- `reaction:added`, `reaction:removed`
 
 ---
 
@@ -154,10 +226,26 @@ FileShare 채널 전용 파일 목록 조회 API가 필요합니다.
 
 | # | 항목 | 서비스 | 우선순위 |
 |---|------|--------|---------|
-| 1 | 채널-프로젝트 귀속 (`projectId`) | cowork-channel | 🔴 높음 |
-| 2 | 채널·프로젝트 순서 (position) | cowork-channel / cowork-project | 🔴 높음 |
-| 3 | 회의록 API (문서 CRUD) | cowork-channel 또는 신규 | 🟡 중간 |
-| 4 | 기본 회의록 템플릿 자동 생성 | cowork-channel | 🟡 중간 |
-| 5 | Socket.io JWT 인증 확인 | cowork-chat | 🔴 높음 |
-| 6 | FileShare 채널 파일 목록 API | cowork-chat | 🟢 낮음 |
-| 7 | AccountShare 채널 설계·구현 | TBD | 🟢 낮음 |
+| 1 | `LocalDateTime` ISO-8601 직렬화 | cowork-channel | 🔴 |
+| 2 | Gateway 프로젝트 reorder 라우팅 | cowork-gateway | 🔴 |
+| 3 | 팀 정보 수정·삭제 API | cowork-team | 🟠 |
+| 4 | 팀 멤버 관리 API (추방·역할변경·탈퇴) | cowork-team | 🟠 |
+| 5 | 팀 초대 링크 API | cowork-team | 🟠 |
+| 6 | 채널 수정·삭제 API | cowork-channel | 🟠 |
+| 7 | 채널별 멤버 권한 (비공개 채널 초대) | cowork-channel | 🟠 |
+| 8 | 채널 메시지 고정 API | cowork-chat | 🟠 |
+| 9 | 프로젝트 수정·삭제·보관 API | cowork-project | 🟠 |
+| 10 | 메시지 Emoji 반응 API + WS 이벤트 | cowork-chat | 🟡 |
+| 11 | 스레드 메시지 `parentMessageId` 필터 | cowork-chat | 🟡 |
+| 12 | 파일·이미지 첨부 API + 메시지 모델 확장 | cowork-chat | 🟡 |
+| 13 | @멘션 멤버 검색 API | cowork-user | 🟡 |
+| 14 | 읽음 상태 및 미읽 카운트 | cowork-chat | 🟡 |
+| 15 | 알림 설정 (preference 모듈 확장) | preference | 🟡 |
+| 16 | 클라이언트에서 스레드 생성 API | cowork-channel | 🟡 |
+| 17 | 프로필 필드 수정 + 커스텀 상태 메시지 | cowork-user | 🟡 |
+| 18 | 전체 검색 API | 신규 or gateway | 🟡 |
+| 19 | AccountShare 채널 설계·구현 | TBD | 🟢 |
+| 20 | 다이렉트 메시지(DM) | 신규 | 🟢 |
+| 21 | 팀 역할 시스템 고도화 | cowork-team | 🟢 |
+| 22 | 회의록 수정·삭제, 템플릿 관리 | cowork-channel | 🟢 |
+| 23 | WebSocket 이벤트 보강 | cowork-chat | 🟢 |

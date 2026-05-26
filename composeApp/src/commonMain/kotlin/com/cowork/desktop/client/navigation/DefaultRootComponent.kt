@@ -8,9 +8,11 @@ import com.arkivanov.decompose.router.stack.replaceAll
 import com.arkivanov.decompose.value.Value
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.cowork.desktop.client.data.local.LayoutPreferenceStorage
+import com.cowork.desktop.client.data.remote.ChatSocket
 import com.cowork.desktop.client.data.repository.AuthRepository
 import com.cowork.desktop.client.data.repository.ChannelRepository
 import com.cowork.desktop.client.data.repository.ChatRepository
+import com.cowork.desktop.client.data.repository.MeetingNoteRepository
 import com.cowork.desktop.client.data.repository.PreferenceRepository
 import com.cowork.desktop.client.data.repository.ProjectRepository
 import com.cowork.desktop.client.data.repository.TeamRepository
@@ -35,6 +37,8 @@ class DefaultRootComponent(
     private val projectRepository: ProjectRepository,
     private val threadRepository: ThreadRepository,
     private val webhookRepository: WebhookRepository,
+    private val meetingNoteRepository: MeetingNoteRepository,
+    private val chatSocket: ChatSocket,
     private val layoutPreferenceStorage: LayoutPreferenceStorage,
     private val oAuthLauncher: OAuthLauncher,
 ) : RootComponent, ComponentContext by componentContext {
@@ -75,6 +79,8 @@ class DefaultRootComponent(
                     projectRepository = projectRepository,
                     threadRepository = threadRepository,
                     webhookRepository = webhookRepository,
+                    meetingNoteRepository = meetingNoteRepository,
+                    chatSocket = chatSocket,
                     layoutPreferenceStorage = layoutPreferenceStorage,
                     onSignedOut = { navigation.replaceAll(Config.Auth) },
                 )

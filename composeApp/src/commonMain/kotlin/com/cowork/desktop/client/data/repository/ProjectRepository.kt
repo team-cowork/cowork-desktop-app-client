@@ -14,4 +14,5 @@ interface ProjectRepository {
     suspend fun getMembers(projectId: Long): List<ProjectMember>
     suspend fun addMember(projectId: Long, userId: Long, role: ProjectRole): ProjectMember
     suspend fun removeMember(projectId: Long, memberId: Long)
+    suspend fun reorderProjects(teamId: Long, orderedProjectIds: List<Long>): List<Project>
 }

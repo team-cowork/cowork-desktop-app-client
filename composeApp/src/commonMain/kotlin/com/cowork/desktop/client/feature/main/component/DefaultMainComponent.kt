@@ -7,9 +7,11 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.labels
 import com.arkivanov.mvikotlin.extensions.coroutines.stateFlow
 import com.cowork.desktop.client.data.local.LayoutPreferenceStorage
+import com.cowork.desktop.client.data.remote.ChatSocket
 import com.cowork.desktop.client.data.repository.AuthRepository
 import com.cowork.desktop.client.data.repository.ChannelRepository
 import com.cowork.desktop.client.data.repository.ChatRepository
+import com.cowork.desktop.client.data.repository.MeetingNoteRepository
 import com.cowork.desktop.client.data.repository.PreferenceRepository
 import com.cowork.desktop.client.data.repository.ProjectRepository
 import com.cowork.desktop.client.data.repository.TeamRepository
@@ -44,6 +46,8 @@ class DefaultMainComponent(
     projectRepository: ProjectRepository,
     threadRepository: ThreadRepository,
     webhookRepository: WebhookRepository,
+    meetingNoteRepository: MeetingNoteRepository,
+    chatSocket: ChatSocket,
     override val layoutPreferenceStorage: LayoutPreferenceStorage,
     private val onSignedOut: () -> Unit,
 ) : MainComponent, ComponentContext by componentContext {
@@ -62,6 +66,8 @@ class DefaultMainComponent(
             projectRepository = projectRepository,
             threadRepository = threadRepository,
             webhookRepository = webhookRepository,
+            meetingNoteRepository = meetingNoteRepository,
+            chatSocket = chatSocket,
         ).create()
     }
 
@@ -122,4 +128,23 @@ class DefaultMainComponent(
     override fun onDeleteWebhook(webhookId: Long) = store.accept(MainStore.Intent.DeleteWebhook(webhookId))
     override fun onReorderChannels(fromIndex: Int, toIndex: Int) = store.accept(MainStore.Intent.ReorderChannels(fromIndex, toIndex))
     override fun onReorderProjects(fromIndex: Int, toIndex: Int) = store.accept(MainStore.Intent.ReorderProjects(fromIndex, toIndex))
+    override fun onChatDraftChange(draft: String) = store.accept(MainStore.Intent.SetChatDraft(draft))
+    override fun onSendChatMessage() = store.accept(MainStore.Intent.SendChatMessage)
+    override fun onCreateMeetingNoteClick() = store.accept(MainStore.Intent.OpenCreateMeetingNote)
+    override fun onCreateMeetingNoteDismiss() = store.accept(MainStore.Intent.CloseCreateMeetingNote)
+    override fun onCreateNoteTitleChange(title: String) = store.accept(MainStore.Intent.ChangeCreateNoteTitle(title))
+    override fun onCreateNoteSectionContentChange(sectionTitle: String, content: String) =
+        store.accept(MainStore.Intent.ChangeCreateNoteSectionContent(sectionTitle, content))
+    override fun onCreateMeetingNoteSubmit() = store.accept(MainStore.Intent.SubmitCreateMeetingNote)
+    override fun onMeetingNoteClick(noteId: Long) = store.accept(MainStore.Intent.SelectMeetingNote(noteId))
+    override fun onMeetingNoteDetailDismiss() = store.accept(MainStore.Intent.CloseMeetingNoteDetail)
+    override fun onOpenThreadList() = store.accept(MainStore.Intent.OpenThreadList)
+    override fun onCloseThreadList() = store.accept(MainStore.Intent.CloseThreadList)
+    override fun onThreadClick(threadId: Long) = store.accept(MainStore.Intent.OpenThread(threadId))
+    override fun onCloseThread() = store.accept(MainStore.Intent.CloseThread)
+    override fun onStartEditMessage(messageId: String) = store.accept(MainStore.Intent.StartEditMessage(messageId))
+    override fun onCancelEditMessage() = store.accept(MainStore.Intent.CancelEditMessage)
+    override fun onChangeEditMessageContent(content: String) = store.accept(MainStore.Intent.ChangeEditMessageContent(content))
+    override fun onSubmitEditMessage() = store.accept(MainStore.Intent.SubmitEditMessage)
+    override fun onDeleteMessage(messageId: String) = store.accept(MainStore.Intent.DeleteMessage(messageId))
 }

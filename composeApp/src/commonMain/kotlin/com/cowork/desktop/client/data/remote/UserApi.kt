@@ -38,6 +38,11 @@ class UserApi(
         }
     }
 
+    suspend fun getUserProfile(accessToken: String, userId: Long): MyProfileResponse =
+        client.get("$baseUrl/users/$userId") {
+            bearerAuth(accessToken)
+        }.body<ApiResponse<MyProfileResponse>>().data ?: MyProfileResponse()
+
     suspend fun putBytesToS3(uploadUrl: String, bytes: ByteArray, contentType: String) {
         client.put(uploadUrl) {
             setBody(ByteArrayContent(bytes, ContentType.parse(contentType)))

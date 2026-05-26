@@ -36,6 +36,11 @@ class TeamApi(
             setBody(CreateTeamRequest(name, description, iconUrl))
         }.body<ApiResponse<TeamResponse>>().data?.toDomain() ?: error("팀 생성 응답에 data가 없습니다")
 
+    suspend fun getTeamMembers(accessToken: String, teamId: Long): List<Long> =
+        client.get("$baseUrl/teams/$teamId/members") {
+            bearerAuth(accessToken)
+        }.body<ApiResponse<List<TeamMemberItemResponse>>>().data.orEmpty().map { it.userId }
+
     suspend fun generateIconPresignedUrl(accessToken: String, contentType: String): IconPresignedUploadResponse =
         client.post("$baseUrl/teams/icon/presigned") {
             bearerAuth(accessToken)
@@ -57,6 +62,9 @@ class TeamApi(
             setBody(ByteArrayContent(bytes, ContentType.parse(contentType)))
         }
     }
+
+    @Serializable
+    private data class TeamMemberItemResponse(val userId: Long)
 
     @Serializable
     data class IconPresignedUploadResponse(val uploadUrl: String, val objectKey: String)

@@ -4,6 +4,8 @@ import com.arkivanov.mvikotlin.core.store.SimpleBootstrapper
 import com.arkivanov.mvikotlin.core.store.Store
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
+import com.cowork.desktop.client.config.AppConfig
+import com.cowork.desktop.client.data.remote.ChatSocket
 import com.cowork.desktop.client.data.repository.AuthRepository
 import com.cowork.desktop.client.data.repository.ChannelRepository
 import com.cowork.desktop.client.data.repository.ChatRepository
@@ -13,7 +15,10 @@ import com.cowork.desktop.client.data.repository.SessionExpiredException
 import com.cowork.desktop.client.data.repository.TeamRepository
 import com.cowork.desktop.client.data.repository.ThreadRepository
 import com.cowork.desktop.client.data.repository.UserRepository
+import com.cowork.desktop.client.data.repository.MeetingNoteRepository
 import com.cowork.desktop.client.data.repository.WebhookRepository
+import com.cowork.desktop.client.domain.model.MeetingNote
+import com.cowork.desktop.client.domain.model.MeetingNoteTemplate
 import com.cowork.desktop.client.domain.model.Webhook
 import com.cowork.desktop.client.domain.model.AppLanguage
 import com.cowork.desktop.client.domain.model.AppTheme
@@ -34,6 +39,7 @@ import com.cowork.desktop.client.feature.main.store.MainStore.Intent
 import com.cowork.desktop.client.feature.main.store.MainStore.Label
 import com.cowork.desktop.client.feature.main.store.MainStore.State
 import com.cowork.desktop.client.util.parseJwtClaims
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -48,6 +54,8 @@ class MainStoreFactory(
     private val projectRepository: ProjectRepository,
     private val threadRepository: ThreadRepository,
     private val webhookRepository: WebhookRepository,
+    private val meetingNoteRepository: MeetingNoteRepository,
+    private val chatSocket: ChatSocket,
 ) {
     fun create(): MainStore =
         object : MainStore, Store<Intent, State, Label> by storeFactory.create(
@@ -113,14 +121,38 @@ class MainStoreFactory(
                 is Intent.ChangeAddWebhookSecure -> dispatch(Msg.SetAddWebhookSecure(intent.isSecure))
                 Intent.SubmitAddWebhook -> submitAddWebhook()
                 is Intent.DeleteWebhook -> deleteWebhook(intent.webhookId)
-                is Intent.ReorderChannels -> dispatch(Msg.ReorderChannels(intent.fromIndex, intent.toIndex))
-                is Intent.ReorderProjects -> dispatch(Msg.ReorderProjects(intent.fromIndex, intent.toIndex))
+                is Intent.ReorderChannels -> reorderChannels(intent.fromIndex, intent.toIndex)
+                is Intent.ReorderProjects -> reorderProjects(intent.fromIndex, intent.toIndex)
+                is Intent.SetChatDraft -> dispatch(Msg.SetChatDraft(intent.draft))
+                Intent.SendChatMessage -> sendChatMessage()
+                Intent.OpenCreateMeetingNote -> dispatch(Msg.SetCreateNoteOpen(true))
+                Intent.CloseCreateMeetingNote -> dispatch(Msg.ResetCreateNoteForm)
+                is Intent.ChangeCreateNoteTitle -> dispatch(Msg.SetCreateNoteTitle(intent.title))
+                is Intent.ChangeCreateNoteSectionContent -> dispatch(Msg.SetCreateNoteSectionContent(intent.sectionTitle, intent.content))
+                Intent.SubmitCreateMeetingNote -> submitCreateMeetingNote()
+                is Intent.SelectMeetingNote -> dispatch(Msg.SelectMeetingNote(intent.noteId))
+                Intent.CloseMeetingNoteDetail -> dispatch(Msg.SelectMeetingNote(null))
+                is Intent.StartEditMessage -> {
+                    val msg = state().messages.firstOrNull { it.id == intent.messageId } ?: return
+                    dispatch(Msg.SetEditingMessage(intent.messageId, msg.content))
+                }
+                Intent.CancelEditMessage -> dispatch(Msg.SetEditingMessage(null, ""))
+                is Intent.ChangeEditMessageContent -> dispatch(Msg.SetEditingContent(intent.content))
+                Intent.SubmitEditMessage -> submitEditMessage()
+                is Intent.DeleteMessage -> deleteMessage(intent.messageId)
+                Intent.OpenThreadList -> dispatch(Msg.SetThreadListOpen(true))
+                Intent.CloseThreadList -> dispatch(Msg.SetThreadListOpen(false))
+                is Intent.OpenThread -> dispatch(Msg.SetSelectedThread(intent.threadId))
+                Intent.CloseThread -> dispatch(Msg.SetSelectedThread(null))
             }
         }
 
         private fun Throwable.handleIfSessionExpired(): Boolean {
             if (this !is SessionExpiredException) return false
-            publish(Label.SignedOut)
+            scope.launch {
+                runCatching { authRepository.signOut() }
+                publish(Label.SignedOut)
+            }
             return true
         }
 
@@ -128,8 +160,13 @@ class MainStoreFactory(
             scope.launch {
                 val tokens = authRepository.getStoredTokens()
                 if (tokens != null) {
+                    chatSocket.connect(
+                        wsBaseUrl = AppConfig.COWORK_CHAT_WS_BASE_URL,
+                        token = tokens.accessToken,
+                        onMessage = { msg -> scope.launch { dispatch(Msg.PrependMessage(msg)) } },
+                    )
                     val claims = parseJwtClaims(tokens.accessToken)
-                    dispatch(Msg.SetAccountInfo(claims.accountId, claims.email))
+                    dispatch(Msg.SetAccountInfo(claims.accountId, claims.email, claims.role))
                     if (claims.accountId != null) {
                         val settings = preferenceRepository.getAccountSettings(claims.accountId)
                         dispatch(Msg.SetAccountStatus(
@@ -172,6 +209,7 @@ class MainStoreFactory(
                         if (selectedTeamId != null && selectedTeamId != currentSelectedTeamId) {
                             loadChannels(selectedTeamId)
                             loadProjects(selectedTeamId)
+                            loadMemberProfiles(selectedTeamId)
                         }
                     }
                     .onFailure {
@@ -179,6 +217,17 @@ class MainStoreFactory(
                         if (!silent) dispatch(Msg.SetError("팀 목록을 불러오지 못했습니다."))
                     }
                 if (!silent) dispatch(Msg.SetLoadingTeams(false))
+            }
+        }
+
+        private fun loadMemberProfiles(teamId: Long) {
+            scope.launch {
+                val userIds = runCatching { teamRepository.getTeamMembers(teamId) }.getOrNull() ?: return@launch
+                val profiles = userIds
+                    .map { userId -> async { userRepository.getUserProfile(userId) } }
+                    .mapNotNull { it.await() }
+                    .associateBy { it.id }
+                dispatch(Msg.SetMemberProfiles(profiles))
             }
         }
 
@@ -195,6 +244,7 @@ class MainStoreFactory(
             dispatch(Msg.SelectTeam(teamId))
             loadChannels(teamId)
             loadProjects(teamId)
+            loadMemberProfiles(teamId)
         }
 
         private fun loadChannels(teamId: Long) {
@@ -231,13 +281,19 @@ class MainStoreFactory(
         }
 
         private fun selectChannel(channelId: Long) {
+            val prevChannelId = state().selectedChannelId
+            if (prevChannelId == channelId) return
+            if (prevChannelId != null) chatSocket.leaveChannel(prevChannelId)
             val channel = state().channels.firstOrNull { it.id == channelId }
             dispatch(Msg.SelectChannel(channelId))
-            if (channel?.type == ChannelType.Webhook) {
-                loadWebhooks(channelId)
-            } else {
-                loadMessages(channelId)
-                loadThreads(channelId)
+            when (channel?.type) {
+                ChannelType.Webhook -> loadWebhooks(channelId)
+                ChannelType.MeetingNote -> loadMeetingNotes(channelId)
+                else -> {
+                    if (channel?.type == ChannelType.Text) chatSocket.joinChannel(channelId)
+                    loadMessages(channelId)
+                    loadThreads(channelId)
+                }
             }
         }
 
@@ -478,6 +534,141 @@ class MainStoreFactory(
                     }
             }
         }
+
+        private fun loadMeetingNotes(channelId: Long) {
+            scope.launch {
+                dispatch(Msg.SetLoadingMeetingNotes(true))
+                runCatching {
+                    val notes = meetingNoteRepository.getNotes(channelId)
+                    val templates = meetingNoteRepository.getTemplates(channelId)
+                    dispatch(Msg.SetMeetingNotes(notes))
+                    dispatch(Msg.SetMeetingNoteTemplates(templates))
+                }.onFailure {
+                    if (it.handleIfSessionExpired()) return@launch
+                    dispatch(Msg.SetMeetingNotes(emptyList()))
+                }
+                dispatch(Msg.SetLoadingMeetingNotes(false))
+            }
+        }
+
+        private fun submitCreateMeetingNote() {
+            val channelId = state().selectedChannelId ?: return
+            val templateId = state().activeTemplate?.id ?: return
+            val title = state().createNoteTitle.trim()
+            if (title.isBlank() || state().isCreatingNote) return
+            val content = buildNoteContent(state().createNoteSectionContents)
+            scope.launch {
+                dispatch(Msg.SetCreatingNote(true))
+                runCatching { meetingNoteRepository.createNote(channelId, templateId, title, content) }
+                    .onSuccess { note ->
+                        dispatch(Msg.ResetCreateNoteForm)
+                        dispatch(Msg.PrependMeetingNote(note))
+                    }
+                    .onFailure {
+                        if (it.handleIfSessionExpired()) return@launch
+                        dispatch(Msg.SetError("회의록을 작성하지 못했습니다."))
+                        dispatch(Msg.SetCreatingNote(false))
+                    }
+            }
+        }
+
+        private fun buildNoteContent(sections: Map<String, String>): String {
+            if (sections.isEmpty()) return "{}"
+            return kotlinx.serialization.json.buildJsonObject {
+                sections.forEach { (k, v) -> put(k, v) }
+            }.toString()
+        }
+
+        private fun sendChatMessage() {
+            val channelId = state().selectedChannelId ?: return
+            val teamId = state().selectedTeamId ?: return
+            val content = state().chatDraft.trim()
+            if (content.isBlank()) return
+            val tempId = "optimistic-${System.currentTimeMillis()}"
+            val optimistic = ChatMessage(
+                id = tempId,
+                teamId = teamId,
+                projectId = null,
+                channelId = channelId,
+                authorId = state().accountId ?: -1,
+                content = content,
+                parentMessageId = null,
+                type = com.cowork.desktop.client.domain.model.MessageType.Text,
+                fileUrl = null,
+                fileName = null,
+                fileSize = null,
+                createdAt = null,
+            )
+            dispatch(Msg.SetChatDraft(""))
+            dispatch(Msg.PrependMessage(optimistic))
+            scope.launch {
+                runCatching { chatRepository.sendMessage(channelId, teamId, content) }
+                    .onFailure {
+                        if (it.handleIfSessionExpired()) return@launch
+                        dispatch(Msg.SetChatDraft(content))
+                        dispatch(Msg.RemoveOptimisticMessage(tempId))
+                    }
+            }
+        }
+
+        private fun submitEditMessage() {
+            val messageId = state().editingMessageId ?: return
+            val channelId = state().selectedChannelId ?: return
+            val content = state().editingMessageContent.trim()
+            if (content.isBlank()) return
+            dispatch(Msg.SetEditingMessage(null, ""))
+            dispatch(Msg.UpdateMessageContent(messageId, content))
+            scope.launch {
+                runCatching { chatRepository.editMessage(channelId, messageId, content) }
+                    .onFailure {
+                        if (it.handleIfSessionExpired()) return@launch
+                        dispatch(Msg.SetEditingMessage(messageId, content))
+                    }
+            }
+        }
+
+        private fun deleteMessage(messageId: String) {
+            val channelId = state().selectedChannelId ?: return
+            dispatch(Msg.RemoveMessage(messageId))
+            scope.launch {
+                runCatching { chatRepository.deleteMessage(channelId, messageId) }
+                    .onFailure {
+                        if (it.handleIfSessionExpired()) return@launch
+                    }
+            }
+        }
+
+        private fun reorderChannels(fromIndex: Int, toIndex: Int) {
+            dispatch(Msg.ReorderChannels(fromIndex, toIndex))
+            val teamId = state().selectedTeamId ?: return
+            val orderedIds = run {
+                val list = state().channels.toMutableList()
+                val item = list.removeAt(fromIndex)
+                list.add(toIndex, item)
+                list.map { it.id }
+            }
+            scope.launch {
+                runCatching { channelRepository.reorderChannels(teamId, orderedIds) }
+                    .onSuccess { dispatch(Msg.SetChannels(it, state().selectedChannelId)) }
+                    .onFailure { if (it.handleIfSessionExpired()) return@launch }
+            }
+        }
+
+        private fun reorderProjects(fromIndex: Int, toIndex: Int) {
+            dispatch(Msg.ReorderProjects(fromIndex, toIndex))
+            val teamId = state().selectedTeamId ?: return
+            val orderedIds = run {
+                val list = state().projects.toMutableList()
+                val item = list.removeAt(fromIndex)
+                list.add(toIndex, item)
+                list.map { it.id }
+            }
+            scope.launch {
+                runCatching { projectRepository.reorderProjects(teamId, orderedIds) }
+                    .onSuccess { dispatch(Msg.SetProjects(it)) }
+                    .onFailure { if (it.handleIfSessionExpired()) return@launch }
+            }
+        }
     }
 
     private sealed interface Msg {
@@ -513,7 +704,7 @@ class MainStoreFactory(
         data object ResetCreateTeamForm : Msg
         data object ResetCreateChannelForm : Msg
         data object ResetCreateProjectForm : Msg
-        data class SetAccountInfo(val accountId: Long?, val email: String?) : Msg
+        data class SetAccountInfo(val accountId: Long?, val email: String?, val role: String?) : Msg
         data class SetUserProfile(val profile: com.cowork.desktop.client.domain.model.UserProfile) : Msg
         data class SetAccountStatus(val status: UserStatus) : Msg
         data class SetAccountMenuOpen(val isOpen: Boolean) : Msg
@@ -539,6 +730,26 @@ class MainStoreFactory(
         data object ResetAddWebhookForm : Msg
         data class ReorderChannels(val fromIndex: Int, val toIndex: Int) : Msg
         data class ReorderProjects(val fromIndex: Int, val toIndex: Int) : Msg
+        data class PrependMessage(val message: ChatMessage) : Msg
+        data class RemoveOptimisticMessage(val tempId: String) : Msg
+        data class SetMemberProfiles(val profiles: Map<Long, com.cowork.desktop.client.domain.model.UserProfile>) : Msg
+        data class SetChatDraft(val draft: String) : Msg
+        data class SetMeetingNotes(val notes: List<MeetingNote>) : Msg
+        data class SetMeetingNoteTemplates(val templates: List<MeetingNoteTemplate>) : Msg
+        data class SetLoadingMeetingNotes(val isLoading: Boolean) : Msg
+        data class PrependMeetingNote(val note: MeetingNote) : Msg
+        data class SelectMeetingNote(val noteId: Long?) : Msg
+        data class SetCreateNoteOpen(val isOpen: Boolean) : Msg
+        data class SetCreateNoteTitle(val title: String) : Msg
+        data class SetCreateNoteSectionContent(val sectionTitle: String, val content: String) : Msg
+        data class SetCreatingNote(val isCreating: Boolean) : Msg
+        data object ResetCreateNoteForm : Msg
+        data class SetThreadListOpen(val isOpen: Boolean) : Msg
+        data class SetSelectedThread(val threadId: Long?) : Msg
+        data class SetEditingMessage(val messageId: String?, val content: String) : Msg
+        data class SetEditingContent(val content: String) : Msg
+        data class UpdateMessageContent(val messageId: String, val content: String) : Msg
+        data class RemoveMessage(val messageId: String) : Msg
     }
 
     private object Reducer : com.arkivanov.mvikotlin.core.store.Reducer<State, Msg> {
@@ -564,6 +775,9 @@ class MainStoreFactory(
                 messages = emptyList(),
                 threads = emptyList(),
                 webhooks = emptyList(),
+                meetingNotes = emptyList(),
+                meetingNoteTemplates = emptyList(),
+                selectedMeetingNoteId = null,
             )
             is Msg.SelectProject -> copy(selectedProjectId = msg.projectId)
             is Msg.SetChannels -> copy(
@@ -617,7 +831,7 @@ class MainStoreFactory(
                 createProjectDescription = "",
                 isCreatingProject = false,
             )
-            is Msg.SetAccountInfo -> copy(accountId = msg.accountId, accountEmail = msg.email)
+            is Msg.SetAccountInfo -> copy(accountId = msg.accountId, accountEmail = msg.email, accountSystemRole = msg.role)
             is Msg.SetUserProfile -> copy(
                 accountName = msg.profile.name,
                 accountEmail = msg.profile.email.ifBlank { accountEmail },
@@ -669,6 +883,44 @@ class MainStoreFactory(
                 list.add(msg.toIndex, item)
                 copy(projects = list)
             }
+            is Msg.PrependMessage -> {
+                if (msg.message.channelId != selectedChannelId) this
+                else {
+                    // 소켓으로 실제 메시지가 오면 같은 authorId+content의 옵티미스틱 메시지 제거
+                    val withoutOptimistic = if (!msg.message.id.startsWith("optimistic-")) {
+                        messages.filterNot { it.id.startsWith("optimistic-") && it.authorId == msg.message.authorId && it.content == msg.message.content }
+                    } else messages
+                    copy(messages = listOf(msg.message) + withoutOptimistic)
+                }
+            }
+            is Msg.RemoveOptimisticMessage -> copy(messages = messages.filterNot { it.id == msg.tempId })
+            is Msg.SetMemberProfiles -> copy(memberProfiles = memberProfiles + msg.profiles)
+            is Msg.SetChatDraft -> copy(chatDraft = msg.draft)
+            is Msg.SetMeetingNotes -> copy(meetingNotes = msg.notes)
+            is Msg.SetMeetingNoteTemplates -> copy(meetingNoteTemplates = msg.templates)
+            is Msg.SetLoadingMeetingNotes -> copy(isLoadingMeetingNotes = msg.isLoading)
+            is Msg.PrependMeetingNote -> copy(meetingNotes = listOf(msg.note) + meetingNotes)
+            is Msg.SelectMeetingNote -> copy(selectedMeetingNoteId = msg.noteId)
+            is Msg.SetCreateNoteOpen -> copy(isCreateMeetingNoteOpen = msg.isOpen, error = null)
+            is Msg.SetCreateNoteTitle -> copy(createNoteTitle = msg.title)
+            is Msg.SetCreateNoteSectionContent -> copy(
+                createNoteSectionContents = createNoteSectionContents + (msg.sectionTitle to msg.content)
+            )
+            is Msg.SetCreatingNote -> copy(isCreatingNote = msg.isCreating)
+            Msg.ResetCreateNoteForm -> copy(
+                isCreateMeetingNoteOpen = false,
+                createNoteTitle = "",
+                createNoteSectionContents = emptyMap(),
+                isCreatingNote = false,
+            )
+            is Msg.SetThreadListOpen -> copy(isThreadListOpen = msg.isOpen, selectedThreadId = if (msg.isOpen) null else selectedThreadId)
+            is Msg.SetSelectedThread -> copy(selectedThreadId = msg.threadId, isThreadListOpen = false)
+            is Msg.SetEditingMessage -> copy(editingMessageId = msg.messageId, editingMessageContent = msg.content)
+            is Msg.SetEditingContent -> copy(editingMessageContent = msg.content)
+            is Msg.UpdateMessageContent -> copy(
+                messages = messages.map { if (it.id == msg.messageId) it.copy(content = msg.content) else it }
+            )
+            is Msg.RemoveMessage -> copy(messages = messages.filterNot { it.id == msg.messageId })
         }
     }
 }

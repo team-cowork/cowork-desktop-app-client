@@ -8,12 +8,14 @@ import kotlinx.serialization.json.Json
 internal data class JwtClaims(
     val accountId: Long? = null,
     val email: String? = null,
+    val role: String? = null,
 )
 
 @Serializable
 private data class JwtPayload(
     val sub: String? = null,
     val email: String? = null,
+    val role: String? = null,
 )
 
 private val lenientJson = Json { ignoreUnknownKeys = true; isLenient = true }
@@ -29,6 +31,7 @@ internal fun parseJwtClaims(jwt: String): JwtClaims {
         JwtClaims(
             accountId = payload.sub?.toLongOrNull(),
             email = payload.email,
+            role = payload.role,
         )
     } catch (_: Exception) {
         JwtClaims()
