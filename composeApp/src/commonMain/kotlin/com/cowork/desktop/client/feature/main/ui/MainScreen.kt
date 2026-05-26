@@ -87,6 +87,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
@@ -1616,8 +1617,12 @@ private fun ColumnScope.TextChannelContent(state: MainStore.State, component: Ma
             reverseLayout = true,
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            items(state.messages.asReversed(), key = { it.id }) { message ->
-                MessageRow(message = message)
+            items(state.messages, key = { it.id }) { message ->
+                MessageRow(
+                    message = message,
+                    myAccountId = state.accountId,
+                    myNickname = state.accountNickname,
+                )
             }
         }
     }
@@ -1956,16 +1961,27 @@ private fun ProjectWorkspace(project: Project) {
 }
 
 @Composable
-private fun MessageRow(message: com.cowork.desktop.client.domain.model.ChatMessage) {
+private fun MessageRow(
+    message: com.cowork.desktop.client.domain.model.ChatMessage,
+    myAccountId: Long?,
+    myNickname: String?,
+) {
+    val isOptimistic = message.id.startsWith("optimistic-")
+    val displayName = if (message.authorId == myAccountId) {
+        myNickname ?: "나"
+    } else {
+        "사용자 ${message.authorId}"
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.small)
             .background(MaterialTheme.colorScheme.surface)
-            .padding(12.dp),
+            .padding(12.dp)
+            .alpha(if (isOptimistic) 0.5f else 1f),
     ) {
         Text(
-            text = "user ${message.authorId}",
+            text = displayName,
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.primary,
             fontWeight = FontWeight.Bold,

@@ -150,7 +150,7 @@ class MainStoreFactory(
                     chatSocket.connect(
                         wsBaseUrl = AppConfig.COWORK_CHAT_WS_BASE_URL,
                         token = tokens.accessToken,
-                        onMessage = { msg -> dispatch(Msg.AppendMessage(msg)) },
+                        onMessage = { msg -> dispatch(Msg.PrependMessage(msg)) },
                     )
                     val claims = parseJwtClaims(tokens.accessToken)
                     dispatch(Msg.SetAccountInfo(claims.accountId, claims.email))
@@ -560,12 +560,29 @@ class MainStoreFactory(
             val teamId = state().selectedTeamId ?: return
             val content = state().chatDraft.trim()
             if (content.isBlank()) return
+            val tempId = "optimistic-${System.currentTimeMillis()}"
+            val optimistic = ChatMessage(
+                id = tempId,
+                teamId = teamId,
+                projectId = null,
+                channelId = channelId,
+                authorId = state().accountId ?: -1,
+                content = content,
+                parentMessageId = null,
+                type = com.cowork.desktop.client.domain.model.MessageType.Text,
+                fileUrl = null,
+                fileName = null,
+                fileSize = null,
+                createdAt = null,
+            )
             dispatch(Msg.SetChatDraft(""))
+            dispatch(Msg.PrependMessage(optimistic))
             scope.launch {
                 runCatching { chatRepository.sendMessage(channelId, teamId, content) }
                     .onFailure {
                         if (it.handleIfSessionExpired()) return@launch
                         dispatch(Msg.SetChatDraft(content))
+                        dispatch(Msg.RemoveOptimisticMessage(tempId))
                     }
             }
         }
@@ -662,7 +679,8 @@ class MainStoreFactory(
         data object ResetAddWebhookForm : Msg
         data class ReorderChannels(val fromIndex: Int, val toIndex: Int) : Msg
         data class ReorderProjects(val fromIndex: Int, val toIndex: Int) : Msg
-        data class AppendMessage(val message: ChatMessage) : Msg
+        data class PrependMessage(val message: ChatMessage) : Msg
+        data class RemoveOptimisticMessage(val tempId: String) : Msg
         data class SetChatDraft(val draft: String) : Msg
         data class SetMeetingNotes(val notes: List<MeetingNote>) : Msg
         data class SetMeetingNoteTemplates(val templates: List<MeetingNoteTemplate>) : Msg
@@ -807,10 +825,17 @@ class MainStoreFactory(
                 list.add(msg.toIndex, item)
                 copy(projects = list)
             }
-            is Msg.AppendMessage -> {
+            is Msg.PrependMessage -> {
                 if (msg.message.channelId != selectedChannelId) this
-                else copy(messages = messages + msg.message)
+                else {
+                    // 소켓으로 실제 메시지가 오면 같은 authorId+content의 옵티미스틱 메시지 제거
+                    val withoutOptimistic = if (!msg.message.id.startsWith("optimistic-")) {
+                        messages.filterNot { it.id.startsWith("optimistic-") && it.authorId == msg.message.authorId && it.content == msg.message.content }
+                    } else messages
+                    copy(messages = listOf(msg.message) + withoutOptimistic)
+                }
             }
+            is Msg.RemoveOptimisticMessage -> copy(messages = messages.filterNot { it.id == msg.tempId })
             is Msg.SetChatDraft -> copy(chatDraft = msg.draft)
             is Msg.SetMeetingNotes -> copy(meetingNotes = msg.notes)
             is Msg.SetMeetingNoteTemplates -> copy(meetingNoteTemplates = msg.templates)
