@@ -65,4 +65,13 @@ interface MainComponent {
     fun onCreateMeetingNoteSubmit()
     fun onMeetingNoteClick(noteId: Long)
     fun onMeetingNoteDetailDismiss()
+    fun onOpenThreadList()
+    fun onCloseThreadList()
+    fun onThreadClick(threadId: Long)
+    fun onCloseThread()
+    fun onStartEditMessage(messageId: String)
+    fun onCancelEditMessage()
+    fun onChangeEditMessageContent(content: String)
+    fun onSubmitEditMessage()
+    fun onDeleteMessage(messageId: String)
 }

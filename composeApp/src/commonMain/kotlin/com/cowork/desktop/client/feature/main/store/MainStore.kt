@@ -13,6 +13,7 @@ import com.cowork.desktop.client.domain.model.Project
 import com.cowork.desktop.client.domain.model.TeamSummary
 import com.cowork.desktop.client.domain.model.Thread
 import com.cowork.desktop.client.domain.model.TimeFormat
+import com.cowork.desktop.client.domain.model.UserProfile
 import com.cowork.desktop.client.domain.model.UserStatus
 import com.cowork.desktop.client.domain.model.Webhook
 import com.cowork.desktop.client.feature.main.store.MainStore.Intent
@@ -74,15 +75,29 @@ interface MainStore : Store<Intent, State, Label> {
         data object SubmitCreateMeetingNote : Intent
         data class SelectMeetingNote(val noteId: Long) : Intent
         data object CloseMeetingNoteDetail : Intent
+        data object OpenThreadList : Intent
+        data object CloseThreadList : Intent
+        data class OpenThread(val threadId: Long) : Intent
+        data object CloseThread : Intent
+        data class StartEditMessage(val messageId: String) : Intent
+        data object CancelEditMessage : Intent
+        data class ChangeEditMessageContent(val content: String) : Intent
+        data object SubmitEditMessage : Intent
+        data class DeleteMessage(val messageId: String) : Intent
     }
 
     data class State(
         val teams: List<TeamSummary> = emptyList(),
         val selectedTeamId: Long? = null,
+        val memberProfiles: Map<Long, UserProfile> = emptyMap(),
         val channels: List<Channel> = emptyList(),
         val selectedChannelId: Long? = null,
         val messages: List<ChatMessage> = emptyList(),
         val threads: List<Thread> = emptyList(),
+        val isThreadListOpen: Boolean = false,
+        val selectedThreadId: Long? = null,
+        val editingMessageId: String? = null,
+        val editingMessageContent: String = "",
         val webhooks: List<Webhook> = emptyList(),
         val isLoadingWebhooks: Boolean = false,
         val isAddWebhookOpen: Boolean = false,
@@ -124,6 +139,7 @@ interface MainStore : Store<Intent, State, Label> {
         val error: String? = null,
         val accountId: Long? = null,
         val accountEmail: String? = null,
+        val accountSystemRole: String? = null,
         val accountName: String? = null,
         val accountNickname: String? = null,
         val accountProfileImageUrl: String? = null,
@@ -145,6 +161,12 @@ interface MainStore : Store<Intent, State, Label> {
         val isUploadingProfileImage: Boolean = false,
         val isUpdatingSettings: Boolean = false,
     ) {
+        val isSystemAdmin: Boolean
+            get() = accountSystemRole == "ROLE_ADMIN"
+
+        fun canEditMessage(authorId: Long): Boolean = authorId == accountId || isSystemAdmin
+        fun canDeleteMessage(authorId: Long): Boolean = authorId == accountId || isSystemAdmin
+
         val selectedTeam: TeamSummary?
             get() = teams.firstOrNull { it.id == selectedTeamId }
 

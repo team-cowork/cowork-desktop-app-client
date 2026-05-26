@@ -138,4 +138,13 @@ class DefaultMainComponent(
     override fun onCreateMeetingNoteSubmit() = store.accept(MainStore.Intent.SubmitCreateMeetingNote)
     override fun onMeetingNoteClick(noteId: Long) = store.accept(MainStore.Intent.SelectMeetingNote(noteId))
     override fun onMeetingNoteDetailDismiss() = store.accept(MainStore.Intent.CloseMeetingNoteDetail)
+    override fun onOpenThreadList() = store.accept(MainStore.Intent.OpenThreadList)
+    override fun onCloseThreadList() = store.accept(MainStore.Intent.CloseThreadList)
+    override fun onThreadClick(threadId: Long) = store.accept(MainStore.Intent.OpenThread(threadId))
+    override fun onCloseThread() = store.accept(MainStore.Intent.CloseThread)
+    override fun onStartEditMessage(messageId: String) = store.accept(MainStore.Intent.StartEditMessage(messageId))
+    override fun onCancelEditMessage() = store.accept(MainStore.Intent.CancelEditMessage)
+    override fun onChangeEditMessageContent(content: String) = store.accept(MainStore.Intent.ChangeEditMessageContent(content))
+    override fun onSubmitEditMessage() = store.accept(MainStore.Intent.SubmitEditMessage)
+    override fun onDeleteMessage(messageId: String) = store.accept(MainStore.Intent.DeleteMessage(messageId))
 }

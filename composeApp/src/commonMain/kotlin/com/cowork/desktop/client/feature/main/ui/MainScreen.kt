@@ -39,11 +39,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Article
 import androidx.compose.material.icons.automirrored.rounded.HelpOutline
@@ -51,8 +53,12 @@ import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ChatBubble
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Link
@@ -99,6 +105,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.text.font.FontWeight
@@ -107,7 +115,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.window.Dialog
 import com.cowork.desktop.client.domain.model.AppLanguage
 import com.cowork.desktop.client.domain.model.AppTheme
@@ -183,6 +193,7 @@ fun MainScreen(component: MainComponent) {
                     onAccountBarClick = component::onAccountMenuClick,
                     onReorderChannels = component::onReorderChannels,
                     onReorderProjects = component::onReorderProjects,
+                    onThreadClick = component::onThreadClick,
                 )
 
                 VerticalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f))
@@ -373,31 +384,99 @@ private fun TeamAvatar(
     isSelected: Boolean,
     onClick: () -> Unit,
 ) {
-    val background = if (isSelected) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.primaryContainer
-    }
-    val foreground = if (isSelected) {
-        MaterialTheme.colorScheme.onPrimary
-    } else {
-        MaterialTheme.colorScheme.onPrimaryContainer
-    }
+    val background = if (isSelected) MaterialTheme.colorScheme.primary
+                     else MaterialTheme.colorScheme.primaryContainer
+    val foreground = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                     else MaterialTheme.colorScheme.onPrimaryContainer
+    var contextMenuVisible by remember { mutableStateOf(false) }
+    @Suppress("DEPRECATION")
+    val clipboardManager = LocalClipboardManager.current
 
-    Box(
-        modifier = Modifier
-            .size(36.dp)
-            .clip(CircleShape)
-            .background(background)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = team.name.firstOrNull()?.uppercase() ?: "?",
-            color = foreground,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Bold,
-        )
+    Box {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(background)
+                .clickable(onClick = onClick)
+                .pointerInput(team.id) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
+                                contextMenuVisible = true
+                            }
+                        }
+                    }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = team.name.firstOrNull()?.uppercase() ?: "?",
+                color = foreground,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        DropdownMenu(
+            expanded = contextMenuVisible,
+            onDismissRequest = { contextMenuVisible = false },
+        ) {
+            Text(
+                text = team.name,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.Bold,
+            )
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            DropdownMenuItem(
+                text = { Text("팀 이름 복사", style = MaterialTheme.typography.bodySmall) },
+                onClick = {
+                    @Suppress("DEPRECATION")
+                    clipboardManager.setText(AnnotatedString(team.name))
+                    contextMenuVisible = false
+                },
+                leadingIcon = { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(16.dp)) },
+            )
+            if (team.myRole.isAtLeastAdmin()) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                DropdownMenuItem(
+                    text = { Text("팀 설정", style = MaterialTheme.typography.bodySmall) },
+                    onClick = { contextMenuVisible = false },
+                    leadingIcon = { Icon(Icons.Rounded.Settings, null, Modifier.size(16.dp)) },
+                    enabled = false,
+                )
+                DropdownMenuItem(
+                    text = { Text("팀원 관리", style = MaterialTheme.typography.bodySmall) },
+                    onClick = { contextMenuVisible = false },
+                    leadingIcon = { Icon(Icons.Rounded.Person, null, Modifier.size(16.dp)) },
+                    enabled = false,
+                )
+                DropdownMenuItem(
+                    text = { Text("초대 링크 생성", style = MaterialTheme.typography.bodySmall) },
+                    onClick = { contextMenuVisible = false },
+                    leadingIcon = { Icon(Icons.Rounded.Link, null, Modifier.size(16.dp)) },
+                    enabled = false,
+                )
+            }
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            if (team.myRole == TeamRole.Owner) {
+                DropdownMenuItem(
+                    text = { Text("팀 삭제", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) },
+                    onClick = { contextMenuVisible = false },
+                    leadingIcon = { Icon(Icons.Rounded.Delete, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error) },
+                    enabled = false,
+                )
+            } else {
+                DropdownMenuItem(
+                    text = { Text("팀 탈퇴", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) },
+                    onClick = { contextMenuVisible = false },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Logout, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error) },
+                    enabled = false,
+                )
+            }
+        }
     }
 }
 
@@ -436,6 +515,7 @@ private fun ChannelPane(
     onAccountBarClick: () -> Unit,
     onReorderChannels: (Int, Int) -> Unit,
     onReorderProjects: (Int, Int) -> Unit,
+    onThreadClick: (Long) -> Unit,
 ) {
     Box(
         modifier = Modifier
@@ -517,11 +597,23 @@ private fun ChannelPane(
                     key = { it.id },
                     onReorder = onReorderChannels,
                 ) { channel, isDragging ->
-                    ChannelRow(
-                        channel = channel,
-                        isSelected = channel.id == state.selectedChannelId && !isDragging,
-                        onClick = { onChannelClick(channel.id) },
-                    )
+                    Column {
+                        ChannelRow(
+                            channel = channel,
+                            isSelected = channel.id == state.selectedChannelId && !isDragging,
+                            teamRole = state.selectedTeam?.myRole ?: TeamRole.Unknown,
+                            onClick = { onChannelClick(channel.id) },
+                        )
+                        if (channel.id == state.selectedChannelId && channel.type == ChannelType.Text) {
+                            state.threads.filter { !it.isArchived }.forEach { thread ->
+                                ThreadSidebarRow(
+                                    thread = thread,
+                                    isSelected = thread.id == state.selectedThreadId,
+                                    onClick = { onThreadClick(thread.id) },
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -560,6 +652,7 @@ private fun ChannelPane(
                         ProjectRow(
                             project = project,
                             isSelected = project.id == state.selectedProjectId && !isDragging,
+                            teamRole = state.selectedTeam?.myRole ?: TeamRole.Unknown,
                             onClick = { onProjectClick(project.id) },
                         )
                     }
@@ -1231,38 +1324,89 @@ private fun ChevronRight(color: Color) {
 private fun ChannelRow(
     channel: Channel,
     isSelected: Boolean,
+    teamRole: TeamRole,
     onClick: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.small)
-            .background(
-                if (isSelected) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+    var contextMenuVisible by remember { mutableStateOf(false) }
+    @Suppress("DEPRECATION")
+    val clipboardManager = LocalClipboardManager.current
+
+    Box {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(MaterialTheme.shapes.small)
+                .background(
+                    if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                )
+                .clickable(onClick = onClick)
+                .pointerInput(channel.id) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
+                                contextMenuVisible = true
+                            }
+                        }
+                    }
                 }
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(
+                imageVector = channel.type.icon(),
+                contentDescription = channel.type.label(),
+                modifier = Modifier.size(17.dp),
+                tint = MaterialTheme.colorScheme.primary,
             )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Icon(
-            imageVector = channel.type.icon(),
-            contentDescription = channel.type.label(),
-            modifier = Modifier.size(17.dp),
-            tint = MaterialTheme.colorScheme.primary,
-        )
-        Text(
-            text = channel.name,
-            modifier = Modifier.weight(1f),
-            color = MaterialTheme.colorScheme.onSurface,
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+            Text(
+                text = channel.name,
+                modifier = Modifier.weight(1f),
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        DropdownMenu(
+            expanded = contextMenuVisible,
+            onDismissRequest = { contextMenuVisible = false },
+        ) {
+            Text(
+                text = channel.name,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.Bold,
+            )
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            DropdownMenuItem(
+                text = { Text("채널 이름 복사", style = MaterialTheme.typography.bodySmall) },
+                onClick = {
+                    @Suppress("DEPRECATION")
+                    clipboardManager.setText(AnnotatedString(channel.name))
+                    contextMenuVisible = false
+                },
+                leadingIcon = { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(16.dp)) },
+            )
+            if (teamRole.isAtLeastAdmin()) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                DropdownMenuItem(
+                    text = { Text("채널 편집", style = MaterialTheme.typography.bodySmall) },
+                    onClick = { contextMenuVisible = false },
+                    leadingIcon = { Icon(Icons.Rounded.Edit, null, Modifier.size(16.dp)) },
+                    enabled = false,
+                )
+                DropdownMenuItem(
+                    text = { Text("채널 삭제", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) },
+                    onClick = { contextMenuVisible = false },
+                    leadingIcon = { Icon(Icons.Rounded.Delete, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error) },
+                    enabled = false,
+                )
+            }
+        }
     }
 }
 
@@ -1270,78 +1414,359 @@ private fun ChannelRow(
 private fun ProjectRow(
     project: Project,
     isSelected: Boolean,
+    teamRole: TeamRole,
     onClick: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.small)
-            .background(
-                if (isSelected) MaterialTheme.colorScheme.primaryContainer
-                else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+    var contextMenuVisible by remember { mutableStateOf(false) }
+    @Suppress("DEPRECATION")
+    val clipboardManager = LocalClipboardManager.current
+
+    Box {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(MaterialTheme.shapes.small)
+                .background(
+                    if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                )
+                .clickable(onClick = onClick)
+                .pointerInput(project.id) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
+                                contextMenuVisible = true
+                            }
+                        }
+                    }
+                }
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.FolderOpen,
+                contentDescription = null,
+                modifier = Modifier.size(15.dp),
+                tint = MaterialTheme.colorScheme.primary,
             )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Icon(
-            imageVector = Icons.Rounded.FolderOpen,
-            contentDescription = null,
-            modifier = Modifier.size(15.dp),
-            tint = MaterialTheme.colorScheme.primary,
-        )
-        Text(
-            text = project.name,
-            modifier = Modifier.weight(1f),
-            color = MaterialTheme.colorScheme.onSurface,
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        if (project.status == ProjectStatus.Archived) {
             Text(
-                text = "보관됨",
+                text = project.name,
+                modifier = Modifier.weight(1f),
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (project.status == ProjectStatus.Archived) {
+                Text(
+                    text = "보관됨",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        DropdownMenu(
+            expanded = contextMenuVisible,
+            onDismissRequest = { contextMenuVisible = false },
+        ) {
+            Text(
+                text = project.name,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.Bold,
             )
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            DropdownMenuItem(
+                text = { Text("프로젝트 이름 복사", style = MaterialTheme.typography.bodySmall) },
+                onClick = {
+                    @Suppress("DEPRECATION")
+                    clipboardManager.setText(AnnotatedString(project.name))
+                    contextMenuVisible = false
+                },
+                leadingIcon = { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(16.dp)) },
+            )
+            if (teamRole.isAtLeastAdmin()) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                DropdownMenuItem(
+                    text = { Text("프로젝트 편집", style = MaterialTheme.typography.bodySmall) },
+                    onClick = { contextMenuVisible = false },
+                    leadingIcon = { Icon(Icons.Rounded.Edit, null, Modifier.size(16.dp)) },
+                    enabled = false,
+                )
+                if (project.status == ProjectStatus.Active) {
+                    DropdownMenuItem(
+                        text = { Text("프로젝트 보관", style = MaterialTheme.typography.bodySmall) },
+                        onClick = { contextMenuVisible = false },
+                        leadingIcon = { Icon(Icons.Rounded.FolderOpen, null, Modifier.size(16.dp)) },
+                        enabled = false,
+                    )
+                } else {
+                    DropdownMenuItem(
+                        text = { Text("보관 해제", style = MaterialTheme.typography.bodySmall) },
+                        onClick = { contextMenuVisible = false },
+                        leadingIcon = { Icon(Icons.Rounded.FolderOpen, null, Modifier.size(16.dp)) },
+                        enabled = false,
+                    )
+                }
+                DropdownMenuItem(
+                    text = { Text("프로젝트 삭제", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) },
+                    onClick = { contextMenuVisible = false },
+                    leadingIcon = { Icon(Icons.Rounded.Delete, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error) },
+                    enabled = false,
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun ThreadRow(thread: Thread) {
+private fun ThreadSidebarRow(thread: Thread, isSelected: Boolean, onClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(start = 20.dp)
             .clip(MaterialTheme.shapes.small)
-            .background(MaterialTheme.colorScheme.surface)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .background(
+                when {
+                    isSelected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                    isHovered -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)
+                    else -> Color.Transparent
+                }
+            )
+            .hoverable(interactionSource)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Icon(
             imageVector = Icons.AutoMirrored.Rounded.Article,
             contentDescription = null,
-            modifier = Modifier.size(14.dp),
-            tint = if (thread.isArchived) MaterialTheme.colorScheme.onSurfaceVariant
-                   else MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(12.dp),
+            tint = if (isSelected) MaterialTheme.colorScheme.primary
+                   else MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
             text = thread.name,
             modifier = Modifier.weight(1f),
-            color = if (thread.isArchived) MaterialTheme.colorScheme.onSurfaceVariant
-                    else MaterialTheme.colorScheme.onSurface,
+            color = if (isSelected) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+@Composable
+private fun ThreadListDialog(state: MainStore.State, component: MainComponent) {
+    var showArchived by remember { mutableStateOf(false) }
+    val displayedThreads = remember(state.threads, showArchived) {
+        if (showArchived) state.threads else state.threads.filter { !it.isArchived }
+    }
+
+    Dialog(onDismissRequest = component::onCloseThreadList) {
+        Surface(
+            modifier = Modifier.width(400.dp),
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+        ) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = "스레드",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "보관됨 포함",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        androidx.compose.material3.Switch(
+                            checked = showArchived,
+                            onCheckedChange = { showArchived = it },
+                            modifier = Modifier.height(24.dp),
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                when {
+                    state.isLoadingThreads -> Box(
+                        modifier = Modifier.fillMaxWidth().height(80.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp) }
+                    displayedThreads.isEmpty() -> Text(
+                        text = if (showArchived) "스레드가 없습니다." else "활성 스레드가 없습니다.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                    else -> LazyColumn(
+                        modifier = Modifier.heightIn(max = 400.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        items(displayedThreads, key = { it.id }) { thread ->
+                            ThreadListItem(thread = thread, onClick = { component.onThreadClick(thread.id) })
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThreadListItem(thread: Thread, onClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.small)
+            .background(
+                if (isHovered) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)
+                else Color.Transparent
+            )
+            .hoverable(interactionSource)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(
+            imageVector = Icons.AutoMirrored.Rounded.Article,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = if (thread.isArchived) MaterialTheme.colorScheme.onSurfaceVariant
+                   else MaterialTheme.colorScheme.primary,
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = thread.name,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (thread.isArchived) MaterialTheme.colorScheme.onSurfaceVariant
+                        else MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
         if (thread.isArchived) {
             Text(
                 text = "보관됨",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        } else {
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ThreadDetailDialog(
+    thread: Thread,
+    state: MainStore.State,
+    component: MainComponent,
+) {
+    val threadMessages = remember(state.messages, thread.parentMessageId) {
+        state.messages.filter { it.parentMessageId == thread.parentMessageId }
+    }
+
+    Dialog(onDismissRequest = component::onCloseThread) {
+        Surface(
+            modifier = Modifier.width(520.dp).heightIn(max = 640.dp),
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // 헤더
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.Article,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        text = thread.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    IconButton(onClick = component::onCloseThread, modifier = Modifier.size(28.dp)) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = "닫기",
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
+
+                HorizontalDivider()
+
+                // 메시지 목록
+                if (threadMessages.isEmpty()) {
+                    Box(
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "이 스레드에 아직 메시지가 없습니다.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        reverseLayout = true,
+                    ) {
+                        itemsIndexed(threadMessages, key = { _, m -> m.id }) { index, message ->
+                            val showHeader = index == threadMessages.lastIndex ||
+                                threadMessages[index + 1].authorId != message.authorId
+                            val profile = state.memberProfiles[message.authorId]
+                            MessageRow(
+                                message = message,
+                                showHeader = showHeader,
+                                displayName = profile?.nickname ?: profile?.name ?: "사용자 ${message.authorId}",
+                                avatarUrl = profile?.profileImageUrl,
+                                state = state,
+                                component = component,
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1601,13 +2026,30 @@ private fun ColumnScope.ChannelWorkspace(state: MainStore.State, channel: Channe
 
 @Composable
 private fun ColumnScope.TextChannelContent(state: MainStore.State, component: MainComponent) {
-    Text(
-        text = "메시지",
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.onBackground,
-    )
-    Spacer(modifier = Modifier.height(12.dp))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = "메시지",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        IconButton(onClick = component::onOpenThreadList) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.Article,
+                contentDescription = "스레드 목록",
+                modifier = Modifier.size(20.dp),
+                tint = if (state.threads.any { !it.isArchived })
+                    MaterialTheme.colorScheme.primary
+                else
+                    MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+    Spacer(modifier = Modifier.height(4.dp))
 
     when {
         state.isLoadingMessages -> CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
@@ -1615,13 +2057,18 @@ private fun ColumnScope.TextChannelContent(state: MainStore.State, component: Ma
         else -> LazyColumn(
             modifier = Modifier.weight(1f),
             reverseLayout = true,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            items(state.messages, key = { it.id }) { message ->
+            itemsIndexed(state.messages, key = { _, m -> m.id }) { index, message ->
+                val showHeader = index == state.messages.lastIndex ||
+                    state.messages[index + 1].authorId != message.authorId
+                val profile = state.memberProfiles[message.authorId]
                 MessageRow(
                     message = message,
-                    myAccountId = state.accountId,
-                    myNickname = state.accountNickname,
+                    showHeader = showHeader,
+                    displayName = profile?.nickname ?: profile?.name ?: "사용자 ${message.authorId}",
+                    avatarUrl = profile?.profileImageUrl,
+                    state = state,
+                    component = component,
                 )
             }
         }
@@ -1650,25 +2097,18 @@ private fun ColumnScope.TextChannelContent(state: MainStore.State, component: Ma
         ),
     )
 
-    Spacer(modifier = Modifier.height(24.dp))
-    Text(
-        text = "스레드",
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.onBackground,
-    )
-    Spacer(modifier = Modifier.height(8.dp))
-    when {
-        state.isLoadingThreads -> CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-        state.threads.isEmpty() -> EmptyPaneText("스레드가 없습니다.")
-        else -> LazyColumn(
-            modifier = Modifier.heightIn(max = 200.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            items(state.threads, key = { it.id }) { thread ->
-                ThreadRow(thread = thread)
-            }
-        }
+
+    if (state.isThreadListOpen) {
+        ThreadListDialog(state = state, component = component)
+    }
+
+    val selectedThread = state.threads.firstOrNull { it.id == state.selectedThreadId }
+    if (selectedThread != null) {
+        ThreadDetailDialog(
+            thread = selectedThread,
+            state = state,
+            component = component,
+        )
     }
 }
 
@@ -1963,35 +2403,168 @@ private fun ProjectWorkspace(project: Project) {
 @Composable
 private fun MessageRow(
     message: com.cowork.desktop.client.domain.model.ChatMessage,
-    myAccountId: Long?,
-    myNickname: String?,
+    showHeader: Boolean,
+    displayName: String,
+    avatarUrl: String?,
+    state: MainStore.State,
+    component: MainComponent,
 ) {
     val isOptimistic = message.id.startsWith("optimistic-")
-    val displayName = if (message.authorId == myAccountId) {
-        myNickname ?: "나"
-    } else {
-        "사용자 ${message.authorId}"
-    }
-    Column(
+    val isEditing = state.editingMessageId == message.id
+    val canEdit = !isOptimistic && state.canEditMessage(message.authorId)
+    val canDelete = !isOptimistic && state.canDeleteMessage(message.authorId)
+    val httpClient = koinInject<HttpClient>()
+    val avatarImage = rememberRemoteImageBitmap(avatarUrl, httpClient)
+    val avatarSize = 36.dp
+    var contextMenuVisible by remember { mutableStateOf(false) }
+    @Suppress("DEPRECATION")
+    val clipboardManager = LocalClipboardManager.current
+    val hoverInteraction = remember { MutableInteractionSource() }
+    val isHovered by hoverInteraction.collectIsHoveredAsState()
+
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(MaterialTheme.shapes.small)
-            .background(MaterialTheme.colorScheme.surface)
-            .padding(12.dp)
-            .alpha(if (isOptimistic) 0.5f else 1f),
+            .hoverable(hoverInteraction)
+            .background(
+                when {
+                    isEditing -> MaterialTheme.colorScheme.primary.copy(alpha = 0.06f)
+                    isHovered -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.045f)
+                    else -> Color.Transparent
+                }
+            )
+            .pointerInput(message.id) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        if (event.type == PointerEventType.Press) {
+                            val btn = event.buttons
+                            if (btn.isSecondaryPressed) {
+                                contextMenuVisible = true
+                            }
+                        }
+                    }
+                }
+            },
     ) {
-        Text(
-            text = displayName,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-            fontWeight = FontWeight.Bold,
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = message.content,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .alpha(if (isOptimistic) 0.55f else 1f)
+                .padding(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = if (showHeader) 12.dp else 2.dp,
+                    bottom = 0.dp,
+                ),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(modifier = Modifier.width(avatarSize)) {
+                if (showHeader) {
+                    Surface(
+                        modifier = Modifier.size(avatarSize).clip(CircleShape),
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                            if (avatarImage != null) {
+                                Image(
+                                    bitmap = avatarImage,
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                    contentScale = ContentScale.Crop,
+                                )
+                            } else {
+                                Text(
+                                    text = displayName.take(1).uppercase(),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                if (showHeader) {
+                    Text(
+                        text = displayName,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                }
+
+                if (isEditing) {
+                    OutlinedTextField(
+                        value = state.editingMessageContent,
+                        onValueChange = component::onChangeEditMessageContent,
+                        modifier = Modifier.fillMaxWidth(),
+                        textStyle = MaterialTheme.typography.bodyMedium,
+                        singleLine = false,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            imeAction = androidx.compose.ui.text.input.ImeAction.Default,
+                        ),
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(
+                            onClick = component::onSubmitEditMessage,
+                            enabled = state.editingMessageContent.isNotBlank(),
+                        ) { Text("저장", style = MaterialTheme.typography.labelSmall) }
+                        TextButton(onClick = component::onCancelEditMessage) {
+                            Text("취소", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                } else {
+                    SelectionContainer {
+                        Text(
+                            text = message.content,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onBackground,
+                        )
+                    }
+                }
+            }
+        }
+
+        DropdownMenu(
+            expanded = contextMenuVisible,
+            onDismissRequest = { contextMenuVisible = false },
+        ) {
+            DropdownMenuItem(
+                text = { Text("복사", style = MaterialTheme.typography.bodySmall) },
+                onClick = {
+                    @Suppress("DEPRECATION")
+                    clipboardManager.setText(AnnotatedString(message.content))
+                    contextMenuVisible = false
+                },
+                leadingIcon = { Icon(Icons.Rounded.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp)) },
+            )
+            if (canEdit) {
+                DropdownMenuItem(
+                    text = { Text("수정", style = MaterialTheme.typography.bodySmall) },
+                    onClick = {
+                        contextMenuVisible = false
+                        component.onStartEditMessage(message.id)
+                    },
+                    leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                )
+            }
+            if (canDelete) {
+                DropdownMenuItem(
+                    text = { Text("삭제", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) },
+                    onClick = {
+                        contextMenuVisible = false
+                        component.onDeleteMessage(message.id)
+                    },
+                    leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error) },
+                )
+            }
+        }
     }
 }
 
@@ -2796,6 +3369,9 @@ private fun TeamRole.label(): String = when (this) {
     TeamRole.Member -> "MEMBER"
     TeamRole.Unknown -> "UNKNOWN"
 }
+
+private fun TeamRole.isAtLeastAdmin(): Boolean =
+    this == TeamRole.Owner || this == TeamRole.Admin
 
 private fun ChannelType.icon(): ImageVector = when (this) {
     ChannelType.Text -> Icons.Rounded.ChatBubble

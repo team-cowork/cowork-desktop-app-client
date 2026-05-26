@@ -39,6 +39,7 @@ import com.cowork.desktop.client.feature.main.store.MainStore.Intent
 import com.cowork.desktop.client.feature.main.store.MainStore.Label
 import com.cowork.desktop.client.feature.main.store.MainStore.State
 import com.cowork.desktop.client.util.parseJwtClaims
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -131,6 +132,18 @@ class MainStoreFactory(
                 Intent.SubmitCreateMeetingNote -> submitCreateMeetingNote()
                 is Intent.SelectMeetingNote -> dispatch(Msg.SelectMeetingNote(intent.noteId))
                 Intent.CloseMeetingNoteDetail -> dispatch(Msg.SelectMeetingNote(null))
+                is Intent.StartEditMessage -> {
+                    val msg = state().messages.firstOrNull { it.id == intent.messageId } ?: return
+                    dispatch(Msg.SetEditingMessage(intent.messageId, msg.content))
+                }
+                Intent.CancelEditMessage -> dispatch(Msg.SetEditingMessage(null, ""))
+                is Intent.ChangeEditMessageContent -> dispatch(Msg.SetEditingContent(intent.content))
+                Intent.SubmitEditMessage -> submitEditMessage()
+                is Intent.DeleteMessage -> deleteMessage(intent.messageId)
+                Intent.OpenThreadList -> dispatch(Msg.SetThreadListOpen(true))
+                Intent.CloseThreadList -> dispatch(Msg.SetThreadListOpen(false))
+                is Intent.OpenThread -> dispatch(Msg.SetSelectedThread(intent.threadId))
+                Intent.CloseThread -> dispatch(Msg.SetSelectedThread(null))
             }
         }
 
@@ -153,7 +166,7 @@ class MainStoreFactory(
                         onMessage = { msg -> dispatch(Msg.PrependMessage(msg)) },
                     )
                     val claims = parseJwtClaims(tokens.accessToken)
-                    dispatch(Msg.SetAccountInfo(claims.accountId, claims.email))
+                    dispatch(Msg.SetAccountInfo(claims.accountId, claims.email, claims.role))
                     if (claims.accountId != null) {
                         val settings = preferenceRepository.getAccountSettings(claims.accountId)
                         dispatch(Msg.SetAccountStatus(
@@ -196,6 +209,7 @@ class MainStoreFactory(
                         if (selectedTeamId != null && selectedTeamId != currentSelectedTeamId) {
                             loadChannels(selectedTeamId)
                             loadProjects(selectedTeamId)
+                            loadMemberProfiles(selectedTeamId)
                         }
                     }
                     .onFailure {
@@ -203,6 +217,17 @@ class MainStoreFactory(
                         if (!silent) dispatch(Msg.SetError("팀 목록을 불러오지 못했습니다."))
                     }
                 if (!silent) dispatch(Msg.SetLoadingTeams(false))
+            }
+        }
+
+        private fun loadMemberProfiles(teamId: Long) {
+            scope.launch {
+                val userIds = runCatching { teamRepository.getTeamMembers(teamId) }.getOrNull() ?: return@launch
+                val profiles = userIds
+                    .map { userId -> async { userRepository.getUserProfile(userId) } }
+                    .mapNotNull { it.await() }
+                    .associateBy { it.id }
+                dispatch(Msg.SetMemberProfiles(profiles))
             }
         }
 
@@ -219,6 +244,7 @@ class MainStoreFactory(
             dispatch(Msg.SelectTeam(teamId))
             loadChannels(teamId)
             loadProjects(teamId)
+            loadMemberProfiles(teamId)
         }
 
         private fun loadChannels(teamId: Long) {
@@ -587,6 +613,33 @@ class MainStoreFactory(
             }
         }
 
+        private fun submitEditMessage() {
+            val messageId = state().editingMessageId ?: return
+            val channelId = state().selectedChannelId ?: return
+            val content = state().editingMessageContent.trim()
+            if (content.isBlank()) return
+            dispatch(Msg.SetEditingMessage(null, ""))
+            dispatch(Msg.UpdateMessageContent(messageId, content))
+            scope.launch {
+                runCatching { chatRepository.editMessage(channelId, messageId, content) }
+                    .onFailure {
+                        if (it.handleIfSessionExpired()) return@launch
+                        dispatch(Msg.SetEditingMessage(messageId, content))
+                    }
+            }
+        }
+
+        private fun deleteMessage(messageId: String) {
+            val channelId = state().selectedChannelId ?: return
+            dispatch(Msg.RemoveMessage(messageId))
+            scope.launch {
+                runCatching { chatRepository.deleteMessage(channelId, messageId) }
+                    .onFailure {
+                        if (it.handleIfSessionExpired()) return@launch
+                    }
+            }
+        }
+
         private fun reorderChannels(fromIndex: Int, toIndex: Int) {
             dispatch(Msg.ReorderChannels(fromIndex, toIndex))
             val teamId = state().selectedTeamId ?: return
@@ -653,7 +706,7 @@ class MainStoreFactory(
         data object ResetCreateTeamForm : Msg
         data object ResetCreateChannelForm : Msg
         data object ResetCreateProjectForm : Msg
-        data class SetAccountInfo(val accountId: Long?, val email: String?) : Msg
+        data class SetAccountInfo(val accountId: Long?, val email: String?, val role: String?) : Msg
         data class SetUserProfile(val profile: com.cowork.desktop.client.domain.model.UserProfile) : Msg
         data class SetAccountStatus(val status: UserStatus) : Msg
         data class SetAccountMenuOpen(val isOpen: Boolean) : Msg
@@ -681,6 +734,7 @@ class MainStoreFactory(
         data class ReorderProjects(val fromIndex: Int, val toIndex: Int) : Msg
         data class PrependMessage(val message: ChatMessage) : Msg
         data class RemoveOptimisticMessage(val tempId: String) : Msg
+        data class SetMemberProfiles(val profiles: Map<Long, com.cowork.desktop.client.domain.model.UserProfile>) : Msg
         data class SetChatDraft(val draft: String) : Msg
         data class SetMeetingNotes(val notes: List<MeetingNote>) : Msg
         data class SetMeetingNoteTemplates(val templates: List<MeetingNoteTemplate>) : Msg
@@ -692,6 +746,12 @@ class MainStoreFactory(
         data class SetCreateNoteSectionContent(val sectionTitle: String, val content: String) : Msg
         data class SetCreatingNote(val isCreating: Boolean) : Msg
         data object ResetCreateNoteForm : Msg
+        data class SetThreadListOpen(val isOpen: Boolean) : Msg
+        data class SetSelectedThread(val threadId: Long?) : Msg
+        data class SetEditingMessage(val messageId: String?, val content: String) : Msg
+        data class SetEditingContent(val content: String) : Msg
+        data class UpdateMessageContent(val messageId: String, val content: String) : Msg
+        data class RemoveMessage(val messageId: String) : Msg
     }
 
     private object Reducer : com.arkivanov.mvikotlin.core.store.Reducer<State, Msg> {
@@ -773,7 +833,7 @@ class MainStoreFactory(
                 createProjectDescription = "",
                 isCreatingProject = false,
             )
-            is Msg.SetAccountInfo -> copy(accountId = msg.accountId, accountEmail = msg.email)
+            is Msg.SetAccountInfo -> copy(accountId = msg.accountId, accountEmail = msg.email, accountSystemRole = msg.role)
             is Msg.SetUserProfile -> copy(
                 accountName = msg.profile.name,
                 accountEmail = msg.profile.email.ifBlank { accountEmail },
@@ -836,6 +896,7 @@ class MainStoreFactory(
                 }
             }
             is Msg.RemoveOptimisticMessage -> copy(messages = messages.filterNot { it.id == msg.tempId })
+            is Msg.SetMemberProfiles -> copy(memberProfiles = memberProfiles + msg.profiles)
             is Msg.SetChatDraft -> copy(chatDraft = msg.draft)
             is Msg.SetMeetingNotes -> copy(meetingNotes = msg.notes)
             is Msg.SetMeetingNoteTemplates -> copy(meetingNoteTemplates = msg.templates)
@@ -854,6 +915,14 @@ class MainStoreFactory(
                 createNoteSectionContents = emptyMap(),
                 isCreatingNote = false,
             )
+            is Msg.SetThreadListOpen -> copy(isThreadListOpen = msg.isOpen, selectedThreadId = if (msg.isOpen) null else selectedThreadId)
+            is Msg.SetSelectedThread -> copy(selectedThreadId = msg.threadId, isThreadListOpen = false)
+            is Msg.SetEditingMessage -> copy(editingMessageId = msg.messageId, editingMessageContent = msg.content)
+            is Msg.SetEditingContent -> copy(editingMessageContent = msg.content)
+            is Msg.UpdateMessageContent -> copy(
+                messages = messages.map { if (it.id == msg.messageId) it.copy(content = msg.content) else it }
+            )
+            is Msg.RemoveMessage -> copy(messages = messages.filterNot { it.id == msg.messageId })
         }
     }
 }

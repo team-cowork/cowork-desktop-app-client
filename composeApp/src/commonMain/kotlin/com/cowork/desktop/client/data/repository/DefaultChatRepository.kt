@@ -14,6 +14,12 @@ class DefaultChatRepository(
     override suspend fun sendMessage(channelId: Long, teamId: Long, content: String) =
         authorized { accessToken -> chatApi.sendMessage(accessToken, channelId, teamId, content) }
 
+    override suspend fun editMessage(channelId: Long, messageId: String, content: String) =
+        authorized { accessToken -> chatApi.editMessage(accessToken, channelId, messageId, content) }
+
+    override suspend fun deleteMessage(channelId: Long, messageId: String) =
+        authorized { accessToken -> chatApi.deleteMessage(accessToken, channelId, messageId) }
+
     private suspend fun <T> authorized(block: suspend (String) -> T): T =
         authRepository.authorized(block)
 }

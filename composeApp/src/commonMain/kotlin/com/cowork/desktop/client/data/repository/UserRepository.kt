@@ -10,6 +10,7 @@ import kotlinx.serialization.json.Json
 
 interface UserRepository {
     suspend fun getMyProfile(): UserProfile?
+    suspend fun getUserProfile(userId: Long): UserProfile?
     suspend fun uploadProfileImage(bytes: ByteArray, contentType: String)
 }
 
@@ -19,6 +20,28 @@ class DefaultUserRepository(
     private val authRepository: AuthRepository,
     private val userApi: UserApi,
 ) : UserRepository {
+
+    override suspend fun getUserProfile(userId: Long): UserProfile? =
+        runCatching {
+            authRepository.authorized { token ->
+                val response = userApi.getUserProfile(token, userId)
+                val id = response.id ?: return@authorized null
+                UserProfile(
+                    id = id,
+                    name = response.name ?: "",
+                    email = response.email ?: "",
+                    nickname = response.nickname,
+                    profileImageUrl = response.profileImageUrl,
+                    github = response.githubId,
+                    studentRole = response.studentRole,
+                    studentNumber = response.studentNumber,
+                    major = response.major,
+                    specialty = response.specialty,
+                    description = response.description ?: response.accountDescription,
+                    roles = response.roles,
+                )
+            }
+        }.getOrNull()
 
     override suspend fun getMyProfile(): UserProfile? =
         runCatching {

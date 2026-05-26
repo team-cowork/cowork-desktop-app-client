@@ -12,6 +12,9 @@ class DefaultTeamRepository(
     override suspend fun getMyTeams(): List<TeamSummary> =
         authorized { accessToken -> teamApi.getMyTeams(accessToken) }
 
+    override suspend fun getTeamMembers(teamId: Long): List<Long> =
+        authorized { accessToken -> teamApi.getTeamMembers(accessToken, teamId) }
+
     override suspend fun createTeam(name: String, description: String?, iconUrl: String?): Team =
         authorized { accessToken -> teamApi.createTeam(accessToken, name, description, iconUrl) }
 
