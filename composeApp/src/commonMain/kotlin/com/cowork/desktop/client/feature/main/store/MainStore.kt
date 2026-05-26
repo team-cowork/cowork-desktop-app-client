@@ -195,7 +195,10 @@ interface MainStore : Store<Intent, State, Label> {
             get() = meetingNoteTemplates.firstOrNull { it.isActive } ?: meetingNoteTemplates.firstOrNull()
 
         val canSubmitNote: Boolean
-            get() = createNoteTitle.isNotBlank() && !isCreatingNote
+            get() = createNoteTitle.isNotBlank() &&
+                    !isCreatingNote &&
+                    (activeTemplate?.sections?.filter { it.isRequired }
+                        ?.all { createNoteSectionContents[it.title]?.isNotBlank() == true } ?: true)
     }
 
     sealed interface Label {

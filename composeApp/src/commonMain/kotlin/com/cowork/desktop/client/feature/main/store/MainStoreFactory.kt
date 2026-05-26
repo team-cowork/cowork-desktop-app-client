@@ -163,7 +163,7 @@ class MainStoreFactory(
                     chatSocket.connect(
                         wsBaseUrl = AppConfig.COWORK_CHAT_WS_BASE_URL,
                         token = tokens.accessToken,
-                        onMessage = { msg -> dispatch(Msg.PrependMessage(msg)) },
+                        onMessage = { msg -> scope.launch { dispatch(Msg.PrependMessage(msg)) } },
                     )
                     val claims = parseJwtClaims(tokens.accessToken)
                     dispatch(Msg.SetAccountInfo(claims.accountId, claims.email, claims.role))
@@ -282,6 +282,7 @@ class MainStoreFactory(
 
         private fun selectChannel(channelId: Long) {
             val prevChannelId = state().selectedChannelId
+            if (prevChannelId == channelId) return
             if (prevChannelId != null) chatSocket.leaveChannel(prevChannelId)
             val channel = state().channels.firstOrNull { it.id == channelId }
             dispatch(Msg.SelectChannel(channelId))
@@ -573,12 +574,11 @@ class MainStoreFactory(
 
         private fun buildNoteContent(sections: Map<String, String>): String {
             if (sections.isEmpty()) return "{}"
-            val entries = sections.entries.joinToString(",") { (k, v) ->
-                val escapedKey = k.replace("\"", "\\\"")
-                val escapedVal = v.replace("\"", "\\\"")
-                "\"$escapedKey\":\"$escapedVal\""
-            }
-            return "{$entries}"
+            return kotlinx.serialization.json.buildJsonObject {
+                sections.forEach { (k, v) ->
+                    put(k, kotlinx.serialization.json.JsonPrimitive(v))
+                }
+            }.toString()
         }
 
         private fun sendChatMessage() {

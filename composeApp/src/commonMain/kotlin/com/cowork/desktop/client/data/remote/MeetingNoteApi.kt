@@ -20,24 +20,26 @@ class MeetingNoteApi(
     suspend fun getNotes(accessToken: String, channelId: Long): List<MeetingNote> =
         client.get("$baseUrl/channels/$channelId/meeting-notes") {
             bearerAuth(accessToken)
-        }.body<List<NoteResponse>>().map(NoteResponse::toDomain)
+        }.body<ApiResponse<List<NoteResponse>>>().data.orEmpty().map(NoteResponse::toDomain)
 
     suspend fun getNote(accessToken: String, channelId: Long, noteId: Long): MeetingNote =
         client.get("$baseUrl/channels/$channelId/meeting-notes/$noteId") {
             bearerAuth(accessToken)
-        }.body<NoteResponse>().toDomain()
+        }.body<ApiResponse<NoteResponse>>().data?.toDomain()
+            ?: error("회의록 상세 조회 응답에 data가 없습니다")
 
     suspend fun createNote(accessToken: String, channelId: Long, templateId: Long, title: String, content: String): MeetingNote =
         client.post("$baseUrl/channels/$channelId/meeting-notes") {
             bearerAuth(accessToken)
             contentType(ContentType.Application.Json)
             setBody(CreateNoteRequest(templateId = templateId, title = title, content = content))
-        }.body<NoteResponse>().toDomain()
+        }.body<ApiResponse<NoteResponse>>().data?.toDomain()
+            ?: error("회의록 생성 응답에 data가 없습니다")
 
     suspend fun getTemplates(accessToken: String, channelId: Long): List<MeetingNoteTemplate> =
         client.get("$baseUrl/channels/$channelId/meeting-note-templates") {
             bearerAuth(accessToken)
-        }.body<List<TemplateResponse>>().map(TemplateResponse::toDomain)
+        }.body<ApiResponse<List<TemplateResponse>>>().data.orEmpty().map(TemplateResponse::toDomain)
 
     @Serializable
     private data class CreateNoteRequest(val templateId: Long, val title: String, val content: String)

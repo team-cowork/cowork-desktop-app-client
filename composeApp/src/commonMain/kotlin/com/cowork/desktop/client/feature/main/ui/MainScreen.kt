@@ -113,6 +113,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -2333,7 +2334,8 @@ private fun MeetingNoteDetailDialog(
                     val json = kotlinx.serialization.json.Json.parseToJsonElement(note.content)
                     if (json is kotlinx.serialization.json.JsonObject) {
                         json.entries.joinToString("\n\n") { (k, v) ->
-                            "**$k**\n${v.toString().trim('"')}"
+                            val content = (v as? kotlinx.serialization.json.JsonPrimitive)?.content ?: v.toString()
+                            "**$k**\n$content"
                         }
                     } else note.content
                 }.getOrDefault(note.content)
@@ -2417,6 +2419,8 @@ private fun MessageRow(
     val avatarImage = rememberRemoteImageBitmap(avatarUrl, httpClient)
     val avatarSize = 36.dp
     var contextMenuVisible by remember { mutableStateOf(false) }
+    var pressOffset by remember { mutableStateOf(DpOffset.Zero) }
+    val density = LocalDensity.current
     @Suppress("DEPRECATION")
     val clipboardManager = LocalClipboardManager.current
     val hoverInteraction = remember { MutableInteractionSource() }
@@ -2440,6 +2444,12 @@ private fun MessageRow(
                         if (event.type == PointerEventType.Press) {
                             val btn = event.buttons
                             if (btn.isSecondaryPressed) {
+                                val position = event.changes.firstOrNull()?.position
+                                if (position != null) {
+                                    pressOffset = with(density) {
+                                        DpOffset(position.x.toDp(), position.y.toDp())
+                                    }
+                                }
                                 contextMenuVisible = true
                             }
                         }
@@ -2534,6 +2544,7 @@ private fun MessageRow(
         DropdownMenu(
             expanded = contextMenuVisible,
             onDismissRequest = { contextMenuVisible = false },
+            offset = pressOffset,
         ) {
             DropdownMenuItem(
                 text = { Text("복사", style = MaterialTheme.typography.bodySmall) },

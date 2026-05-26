@@ -1,0 +1,4 @@
+71816998480ffb5c86b8d46c5c73f433fe308a40 7181699 feat: Discord-style chat UI, thread panel, message actions, sidebar context menus
+615b898700552730d254006e132e6ecf9abeee2a 615b898 fix: chat message ordering, optimistic send, sender name display
+685512018c88cd1605e3b92e906cffcb25382024 6855120 fix: session expiry loop — clear tokens before navigating to Auth
+8f290a04580d75c5b303f423c2fb8ee7e18f2655 8f290a0 feat: channel/project reorder, meeting notes, socket.io chat
