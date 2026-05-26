@@ -30,8 +30,12 @@ class DefaultChannelRepository(
         name: String?,
         description: String?,
         isPrivate: Boolean?,
+        projectId: Long?,
     ): Channel =
-        authorized { channelApi.updateChannel(it, channelId, name, description, isPrivate) }
+        authorized { channelApi.updateChannel(it, channelId, name, description, isPrivate, projectId) }
+
+    override suspend fun reorderChannels(teamId: Long, orderedChannelIds: List<Long>): List<Channel> =
+        authorized { channelApi.reorderChannels(it, teamId, orderedChannelIds) }
 
     override suspend fun deleteChannel(channelId: Long) =
         authorized { channelApi.deleteChannel(it, channelId) }

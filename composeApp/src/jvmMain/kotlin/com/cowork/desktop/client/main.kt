@@ -33,9 +33,11 @@ import com.arkivanov.decompose.DefaultComponentContext
 import com.arkivanov.essenty.lifecycle.LifecycleRegistry
 import com.arkivanov.mvikotlin.main.store.DefaultStoreFactory
 import com.cowork.desktop.client.data.local.LayoutPreferenceStorage
+import com.cowork.desktop.client.data.remote.ChatSocket
 import com.cowork.desktop.client.data.repository.AuthRepository
 import com.cowork.desktop.client.data.repository.ChannelRepository
 import com.cowork.desktop.client.data.repository.ChatRepository
+import com.cowork.desktop.client.data.repository.MeetingNoteRepository
 import com.cowork.desktop.client.data.repository.PreferenceRepository
 import com.cowork.desktop.client.data.repository.ProjectRepository
 import com.cowork.desktop.client.data.repository.TeamRepository
@@ -79,6 +81,8 @@ fun main(args: Array<String>) {
             projectRepository = koin.get<ProjectRepository>(),
             threadRepository = koin.get<ThreadRepository>(),
             webhookRepository = koin.get<WebhookRepository>(),
+            meetingNoteRepository = koin.get<MeetingNoteRepository>(),
+            chatSocket = koin.get<ChatSocket>(),
             layoutPreferenceStorage = koin.get<LayoutPreferenceStorage>(),
             oAuthLauncher = koin.get<OAuthLauncher>(),
         )

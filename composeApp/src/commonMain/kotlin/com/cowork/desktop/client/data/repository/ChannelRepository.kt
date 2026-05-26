@@ -19,8 +19,10 @@ interface ChannelRepository {
         name: String? = null,
         description: String? = null,
         isPrivate: Boolean? = null,
+        projectId: Long? = null,
     ): Channel
     suspend fun deleteChannel(channelId: Long)
+    suspend fun reorderChannels(teamId: Long, orderedChannelIds: List<Long>): List<Channel>
     suspend fun getMembers(channelId: Long): List<ChannelMember>
     suspend fun addMember(channelId: Long, userId: Long): ChannelMember
     suspend fun removeMember(channelId: Long, memberId: Long)

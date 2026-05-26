@@ -1,9 +1,11 @@
 package com.cowork.desktop.client.config
 
 internal expect fun resolveCoworkApiBaseUrl(): String
+internal expect fun resolveCoworkChatWsBaseUrl(): String
 
 object AppConfig {
     val COWORK_API_BASE_URL: String = resolveCoworkApiBaseUrl()
+    val COWORK_CHAT_WS_BASE_URL: String = resolveCoworkChatWsBaseUrl()
     const val DATAGSM_AUTHORIZE_URL = "https://oauth.authorization.datagsm.kr/v1/oauth/authorize"
     const val DESKTOP_OAUTH_SCHEME = "cowork"
     const val DESKTOP_OAUTH_CALLBACK_HOST = "oauth"

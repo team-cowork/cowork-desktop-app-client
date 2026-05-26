@@ -7,6 +7,8 @@ import com.cowork.desktop.client.domain.model.Channel
 import com.cowork.desktop.client.domain.model.ChannelType
 import com.cowork.desktop.client.domain.model.ChatMessage
 import com.cowork.desktop.client.domain.model.DateFormat
+import com.cowork.desktop.client.domain.model.MeetingNote
+import com.cowork.desktop.client.domain.model.MeetingNoteTemplate
 import com.cowork.desktop.client.domain.model.Project
 import com.cowork.desktop.client.domain.model.TeamSummary
 import com.cowork.desktop.client.domain.model.Thread
@@ -63,6 +65,15 @@ interface MainStore : Store<Intent, State, Label> {
         data class DeleteWebhook(val webhookId: Long) : Intent
         data class ReorderChannels(val fromIndex: Int, val toIndex: Int) : Intent
         data class ReorderProjects(val fromIndex: Int, val toIndex: Int) : Intent
+        data class SetChatDraft(val draft: String) : Intent
+        data object SendChatMessage : Intent
+        data object OpenCreateMeetingNote : Intent
+        data object CloseCreateMeetingNote : Intent
+        data class ChangeCreateNoteTitle(val title: String) : Intent
+        data class ChangeCreateNoteSectionContent(val sectionTitle: String, val content: String) : Intent
+        data object SubmitCreateMeetingNote : Intent
+        data class SelectMeetingNote(val noteId: Long) : Intent
+        data object CloseMeetingNoteDetail : Intent
     }
 
     data class State(
@@ -78,6 +89,14 @@ interface MainStore : Store<Intent, State, Label> {
         val addWebhookName: String = "",
         val addWebhookIsSecure: Boolean = false,
         val isAddingWebhook: Boolean = false,
+        val meetingNotes: List<MeetingNote> = emptyList(),
+        val isLoadingMeetingNotes: Boolean = false,
+        val meetingNoteTemplates: List<MeetingNoteTemplate> = emptyList(),
+        val selectedMeetingNoteId: Long? = null,
+        val isCreateMeetingNoteOpen: Boolean = false,
+        val createNoteTitle: String = "",
+        val createNoteSectionContents: Map<String, String> = emptyMap(),
+        val isCreatingNote: Boolean = false,
         val projects: List<Project> = emptyList(),
         val selectedProjectId: Long? = null,
         val isLoadingTeams: Boolean = false,
@@ -146,6 +165,15 @@ interface MainStore : Store<Intent, State, Label> {
 
         val canSubmitWebhook: Boolean
             get() = addWebhookName.isNotBlank() && !isAddingWebhook
+
+        val selectedMeetingNote: MeetingNote?
+            get() = meetingNotes.firstOrNull { it.id == selectedMeetingNoteId }
+
+        val activeTemplate: MeetingNoteTemplate?
+            get() = meetingNoteTemplates.firstOrNull { it.isActive } ?: meetingNoteTemplates.firstOrNull()
+
+        val canSubmitNote: Boolean
+            get() = createNoteTitle.isNotBlank() && !isCreatingNote
     }
 
     sealed interface Label {

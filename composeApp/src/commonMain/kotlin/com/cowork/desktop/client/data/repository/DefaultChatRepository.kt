@@ -11,6 +11,9 @@ class DefaultChatRepository(
     override suspend fun getMessages(channelId: Long, before: String?, limit: Int): List<ChatMessage> =
         authorized { accessToken -> chatApi.getMessages(accessToken, channelId, before, limit) }
 
+    override suspend fun sendMessage(channelId: Long, teamId: Long, content: String) =
+        authorized { accessToken -> chatApi.sendMessage(accessToken, channelId, teamId, content) }
+
     private suspend fun <T> authorized(block: suspend (String) -> T): T =
         authRepository.authorized(block)
 }

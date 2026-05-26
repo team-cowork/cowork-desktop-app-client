@@ -56,4 +56,13 @@ interface MainComponent {
     fun onDeleteWebhook(webhookId: Long)
     fun onReorderChannels(fromIndex: Int, toIndex: Int)
     fun onReorderProjects(fromIndex: Int, toIndex: Int)
+    fun onChatDraftChange(draft: String)
+    fun onSendChatMessage()
+    fun onCreateMeetingNoteClick()
+    fun onCreateMeetingNoteDismiss()
+    fun onCreateNoteTitleChange(title: String)
+    fun onCreateNoteSectionContentChange(sectionTitle: String, content: String)
+    fun onCreateMeetingNoteSubmit()
+    fun onMeetingNoteClick(noteId: Long)
+    fun onMeetingNoteDetailDismiss()
 }

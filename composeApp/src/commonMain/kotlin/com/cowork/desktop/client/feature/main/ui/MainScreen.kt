@@ -48,6 +48,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Article
 import androidx.compose.material.icons.automirrored.rounded.HelpOutline
 import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
@@ -1587,10 +1588,10 @@ private fun ColumnScope.ChannelWorkspace(state: MainStore.State, channel: Channe
     Spacer(modifier = Modifier.height(24.dp))
 
     when (channel.type) {
-        ChannelType.Text -> TextChannelContent(state = state)
+        ChannelType.Text -> TextChannelContent(state = state, component = component)
         ChannelType.Webhook -> WebhookChannelContent(state = state, component = component)
         ChannelType.Voice -> ComingSoonContent(icon = Icons.AutoMirrored.Rounded.VolumeUp, message = "음성 채팅은 추후 지원될 예정입니다.")
-        ChannelType.MeetingNote -> ComingSoonContent(icon = Icons.AutoMirrored.Rounded.Article, message = "회의록 기능은 서버 구현 후 지원될 예정입니다.")
+        ChannelType.MeetingNote -> MeetingNoteChannelContent(state = state, component = component)
         ChannelType.AccountShare -> ComingSoonContent(icon = Icons.Rounded.Person, message = "계정 공유 기능은 추후 지원될 예정입니다.")
         ChannelType.FileShare -> ComingSoonContent(icon = Icons.AutoMirrored.Rounded.Article, message = "파일 공유 기능은 추후 지원될 예정입니다.")
         ChannelType.Unknown -> ComingSoonContent(icon = Icons.AutoMirrored.Rounded.HelpOutline, message = "알 수 없는 채널 타입입니다.")
@@ -1598,7 +1599,7 @@ private fun ColumnScope.ChannelWorkspace(state: MainStore.State, channel: Channe
 }
 
 @Composable
-private fun ColumnScope.TextChannelContent(state: MainStore.State) {
+private fun ColumnScope.TextChannelContent(state: MainStore.State, component: MainComponent) {
     Text(
         text = "메시지",
         style = MaterialTheme.typography.titleMedium,
@@ -1612,9 +1613,10 @@ private fun ColumnScope.TextChannelContent(state: MainStore.State) {
         state.messages.isEmpty() -> EmptyPaneText("메시지가 없습니다.")
         else -> LazyColumn(
             modifier = Modifier.weight(1f),
+            reverseLayout = true,
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            items(state.messages, key = { it.id }) { message ->
+            items(state.messages.asReversed(), key = { it.id }) { message ->
                 MessageRow(message = message)
             }
         }
@@ -1622,12 +1624,25 @@ private fun ColumnScope.TextChannelContent(state: MainStore.State) {
 
     Spacer(modifier = Modifier.height(16.dp))
     OutlinedTextField(
-        value = "",
-        onValueChange = {},
+        value = state.chatDraft,
+        onValueChange = component::onChatDraftChange,
         modifier = Modifier.fillMaxWidth(),
-        enabled = false,
-        placeholder = { Text("Socket.io JWT 인증 연결 후 메시지 전송 활성화") },
+        placeholder = { Text("메시지 입력...") },
         singleLine = true,
+        trailingIcon = {
+            IconButton(
+                onClick = component::onSendChatMessage,
+                enabled = state.chatDraft.isNotBlank(),
+            ) {
+                Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = "전송")
+            }
+        },
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+            imeAction = androidx.compose.ui.text.input.ImeAction.Send,
+        ),
+        keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+            onSend = { component.onSendChatMessage() },
+        ),
     )
 
     Spacer(modifier = Modifier.height(24.dp))
@@ -1710,6 +1725,177 @@ private fun ColumnScope.ComingSoonContent(icon: ImageVector, message: String) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+@Composable
+private fun ColumnScope.MeetingNoteChannelContent(state: MainStore.State, component: MainComponent) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = "회의록",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        if (state.activeTemplate != null) {
+            TextButton(onClick = component::onCreateMeetingNoteClick) {
+                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("새 회의록")
+            }
+        }
+    }
+    Spacer(modifier = Modifier.height(12.dp))
+
+    when {
+        state.isLoadingMeetingNotes -> CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
+        state.activeTemplate == null -> EmptyPaneText("활성 템플릿이 없습니다. 템플릿을 먼저 생성해주세요.")
+        state.meetingNotes.isEmpty() -> EmptyPaneText("작성된 회의록이 없습니다.")
+        else -> LazyColumn(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(state.meetingNotes, key = { it.id }) { note ->
+                MeetingNoteRow(note = note, onClick = { component.onMeetingNoteClick(note.id) })
+            }
+        }
+    }
+
+    if (state.isCreateMeetingNoteOpen && state.activeTemplate != null) {
+        CreateMeetingNoteDialog(state = state, component = component)
+    }
+
+    val selectedNote = state.selectedMeetingNote
+    if (selectedNote != null) {
+        MeetingNoteDetailDialog(note = selectedNote, onDismiss = component::onMeetingNoteDetailDismiss)
+    }
+}
+
+@Composable
+private fun MeetingNoteRow(note: com.cowork.desktop.client.domain.model.MeetingNote, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = note.title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = note.createdAt.take(10),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CreateMeetingNoteDialog(state: MainStore.State, component: MainComponent) {
+    val template = state.activeTemplate ?: return
+    androidx.compose.ui.window.Dialog(onDismissRequest = component::onCreateMeetingNoteDismiss) {
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 4.dp,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+        ) {
+            Column(modifier = Modifier.padding(24.dp).verticalScroll(rememberScrollState())) {
+                Text("새 회의록", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedTextField(
+                    value = state.createNoteTitle,
+                    onValueChange = component::onCreateNoteTitleChange,
+                    label = { Text("제목") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                )
+
+                template.sections.forEach { section ->
+                    Spacer(modifier = Modifier.height(12.dp))
+                    val sectionContent = state.createNoteSectionContents[section.title] ?: ""
+                    OutlinedTextField(
+                        value = sectionContent,
+                        onValueChange = { component.onCreateNoteSectionContentChange(section.title, it) },
+                        label = {
+                            Text(if (section.isRequired) "${section.title} *" else section.title)
+                        },
+                        placeholder = section.placeholder?.let { { Text(it) } },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 2,
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = component::onCreateMeetingNoteDismiss) { Text("취소") }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = component::onCreateMeetingNoteSubmit,
+                        enabled = state.canSubmitNote,
+                    ) {
+                        if (state.isCreatingNote) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                        } else {
+                            Text("저장")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MeetingNoteDetailDialog(
+    note: com.cowork.desktop.client.domain.model.MeetingNote,
+    onDismiss: () -> Unit,
+) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 4.dp,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+        ) {
+            Column(modifier = Modifier.padding(24.dp).verticalScroll(rememberScrollState())) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(note.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Rounded.Close, contentDescription = "닫기")
+                    }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(note.createdAt.take(10), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(modifier = Modifier.height(16.dp))
+
+                val contentText = runCatching {
+                    val json = kotlinx.serialization.json.Json.parseToJsonElement(note.content)
+                    if (json is kotlinx.serialization.json.JsonObject) {
+                        json.entries.joinToString("\n\n") { (k, v) ->
+                            "**$k**\n${v.toString().trim('"')}"
+                        }
+                    } else note.content
+                }.getOrDefault(note.content)
+
+                Text(contentText, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+            }
+        }
     }
 }
 

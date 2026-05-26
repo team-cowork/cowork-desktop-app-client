@@ -42,6 +42,9 @@ class DefaultProjectRepository(
     override suspend fun removeMember(projectId: Long, memberId: Long) =
         authorized { projectApi.removeMember(it, projectId, memberId) }
 
+    override suspend fun reorderProjects(teamId: Long, orderedProjectIds: List<Long>): List<Project> =
+        authorized { projectApi.reorderProjects(it, teamId, orderedProjectIds) }
+
     private suspend fun <T> authorized(block: suspend (String) -> T): T =
         authRepository.authorized(block)
 }

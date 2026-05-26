@@ -4,6 +4,8 @@ import com.arkivanov.mvikotlin.core.store.SimpleBootstrapper
 import com.arkivanov.mvikotlin.core.store.Store
 import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
+import com.cowork.desktop.client.config.AppConfig
+import com.cowork.desktop.client.data.remote.ChatSocket
 import com.cowork.desktop.client.data.repository.AuthRepository
 import com.cowork.desktop.client.data.repository.ChannelRepository
 import com.cowork.desktop.client.data.repository.ChatRepository
@@ -13,7 +15,10 @@ import com.cowork.desktop.client.data.repository.SessionExpiredException
 import com.cowork.desktop.client.data.repository.TeamRepository
 import com.cowork.desktop.client.data.repository.ThreadRepository
 import com.cowork.desktop.client.data.repository.UserRepository
+import com.cowork.desktop.client.data.repository.MeetingNoteRepository
 import com.cowork.desktop.client.data.repository.WebhookRepository
+import com.cowork.desktop.client.domain.model.MeetingNote
+import com.cowork.desktop.client.domain.model.MeetingNoteTemplate
 import com.cowork.desktop.client.domain.model.Webhook
 import com.cowork.desktop.client.domain.model.AppLanguage
 import com.cowork.desktop.client.domain.model.AppTheme
@@ -48,6 +53,8 @@ class MainStoreFactory(
     private val projectRepository: ProjectRepository,
     private val threadRepository: ThreadRepository,
     private val webhookRepository: WebhookRepository,
+    private val meetingNoteRepository: MeetingNoteRepository,
+    private val chatSocket: ChatSocket,
 ) {
     fun create(): MainStore =
         object : MainStore, Store<Intent, State, Label> by storeFactory.create(
@@ -113,8 +120,17 @@ class MainStoreFactory(
                 is Intent.ChangeAddWebhookSecure -> dispatch(Msg.SetAddWebhookSecure(intent.isSecure))
                 Intent.SubmitAddWebhook -> submitAddWebhook()
                 is Intent.DeleteWebhook -> deleteWebhook(intent.webhookId)
-                is Intent.ReorderChannels -> dispatch(Msg.ReorderChannels(intent.fromIndex, intent.toIndex))
-                is Intent.ReorderProjects -> dispatch(Msg.ReorderProjects(intent.fromIndex, intent.toIndex))
+                is Intent.ReorderChannels -> reorderChannels(intent.fromIndex, intent.toIndex)
+                is Intent.ReorderProjects -> reorderProjects(intent.fromIndex, intent.toIndex)
+                is Intent.SetChatDraft -> dispatch(Msg.SetChatDraft(intent.draft))
+                Intent.SendChatMessage -> sendChatMessage()
+                Intent.OpenCreateMeetingNote -> dispatch(Msg.SetCreateNoteOpen(true))
+                Intent.CloseCreateMeetingNote -> dispatch(Msg.ResetCreateNoteForm)
+                is Intent.ChangeCreateNoteTitle -> dispatch(Msg.SetCreateNoteTitle(intent.title))
+                is Intent.ChangeCreateNoteSectionContent -> dispatch(Msg.SetCreateNoteSectionContent(intent.sectionTitle, intent.content))
+                Intent.SubmitCreateMeetingNote -> submitCreateMeetingNote()
+                is Intent.SelectMeetingNote -> dispatch(Msg.SelectMeetingNote(intent.noteId))
+                Intent.CloseMeetingNoteDetail -> dispatch(Msg.SelectMeetingNote(null))
             }
         }
 
@@ -128,6 +144,11 @@ class MainStoreFactory(
             scope.launch {
                 val tokens = authRepository.getStoredTokens()
                 if (tokens != null) {
+                    chatSocket.connect(
+                        wsBaseUrl = AppConfig.COWORK_CHAT_WS_BASE_URL,
+                        token = tokens.accessToken,
+                        onMessage = { msg -> dispatch(Msg.AppendMessage(msg)) },
+                    )
                     val claims = parseJwtClaims(tokens.accessToken)
                     dispatch(Msg.SetAccountInfo(claims.accountId, claims.email))
                     if (claims.accountId != null) {
@@ -231,13 +252,18 @@ class MainStoreFactory(
         }
 
         private fun selectChannel(channelId: Long) {
+            val prevChannelId = state().selectedChannelId
+            if (prevChannelId != null) chatSocket.leaveChannel(prevChannelId)
             val channel = state().channels.firstOrNull { it.id == channelId }
             dispatch(Msg.SelectChannel(channelId))
-            if (channel?.type == ChannelType.Webhook) {
-                loadWebhooks(channelId)
-            } else {
-                loadMessages(channelId)
-                loadThreads(channelId)
+            when (channel?.type) {
+                ChannelType.Webhook -> loadWebhooks(channelId)
+                ChannelType.MeetingNote -> loadMeetingNotes(channelId)
+                else -> {
+                    if (channel?.type == ChannelType.Text) chatSocket.joinChannel(channelId)
+                    loadMessages(channelId)
+                    loadThreads(channelId)
+                }
             }
         }
 
@@ -478,6 +504,100 @@ class MainStoreFactory(
                     }
             }
         }
+
+        private fun loadMeetingNotes(channelId: Long) {
+            scope.launch {
+                dispatch(Msg.SetLoadingMeetingNotes(true))
+                runCatching {
+                    val notes = meetingNoteRepository.getNotes(channelId)
+                    val templates = meetingNoteRepository.getTemplates(channelId)
+                    dispatch(Msg.SetMeetingNotes(notes))
+                    dispatch(Msg.SetMeetingNoteTemplates(templates))
+                }.onFailure {
+                    if (it.handleIfSessionExpired()) return@launch
+                    dispatch(Msg.SetMeetingNotes(emptyList()))
+                }
+                dispatch(Msg.SetLoadingMeetingNotes(false))
+            }
+        }
+
+        private fun submitCreateMeetingNote() {
+            val channelId = state().selectedChannelId ?: return
+            val templateId = state().activeTemplate?.id ?: return
+            val title = state().createNoteTitle.trim()
+            if (title.isBlank() || state().isCreatingNote) return
+            val content = buildNoteContent(state().createNoteSectionContents)
+            scope.launch {
+                dispatch(Msg.SetCreatingNote(true))
+                runCatching { meetingNoteRepository.createNote(channelId, templateId, title, content) }
+                    .onSuccess { note ->
+                        dispatch(Msg.ResetCreateNoteForm)
+                        dispatch(Msg.PrependMeetingNote(note))
+                    }
+                    .onFailure {
+                        if (it.handleIfSessionExpired()) return@launch
+                        dispatch(Msg.SetError("회의록을 작성하지 못했습니다."))
+                        dispatch(Msg.SetCreatingNote(false))
+                    }
+            }
+        }
+
+        private fun buildNoteContent(sections: Map<String, String>): String {
+            if (sections.isEmpty()) return "{}"
+            val entries = sections.entries.joinToString(",") { (k, v) ->
+                val escapedKey = k.replace("\"", "\\\"")
+                val escapedVal = v.replace("\"", "\\\"")
+                "\"$escapedKey\":\"$escapedVal\""
+            }
+            return "{$entries}"
+        }
+
+        private fun sendChatMessage() {
+            val channelId = state().selectedChannelId ?: return
+            val teamId = state().selectedTeamId ?: return
+            val content = state().chatDraft.trim()
+            if (content.isBlank()) return
+            dispatch(Msg.SetChatDraft(""))
+            scope.launch {
+                runCatching { chatRepository.sendMessage(channelId, teamId, content) }
+                    .onFailure {
+                        if (it.handleIfSessionExpired()) return@launch
+                        dispatch(Msg.SetChatDraft(content))
+                    }
+            }
+        }
+
+        private fun reorderChannels(fromIndex: Int, toIndex: Int) {
+            dispatch(Msg.ReorderChannels(fromIndex, toIndex))
+            val teamId = state().selectedTeamId ?: return
+            val orderedIds = run {
+                val list = state().channels.toMutableList()
+                val item = list.removeAt(fromIndex)
+                list.add(toIndex, item)
+                list.map { it.id }
+            }
+            scope.launch {
+                runCatching { channelRepository.reorderChannels(teamId, orderedIds) }
+                    .onSuccess { dispatch(Msg.SetChannels(it, state().selectedChannelId)) }
+                    .onFailure { if (it.handleIfSessionExpired()) return@launch }
+            }
+        }
+
+        private fun reorderProjects(fromIndex: Int, toIndex: Int) {
+            dispatch(Msg.ReorderProjects(fromIndex, toIndex))
+            val teamId = state().selectedTeamId ?: return
+            val orderedIds = run {
+                val list = state().projects.toMutableList()
+                val item = list.removeAt(fromIndex)
+                list.add(toIndex, item)
+                list.map { it.id }
+            }
+            scope.launch {
+                runCatching { projectRepository.reorderProjects(teamId, orderedIds) }
+                    .onSuccess { dispatch(Msg.SetProjects(it)) }
+                    .onFailure { if (it.handleIfSessionExpired()) return@launch }
+            }
+        }
     }
 
     private sealed interface Msg {
@@ -539,6 +659,18 @@ class MainStoreFactory(
         data object ResetAddWebhookForm : Msg
         data class ReorderChannels(val fromIndex: Int, val toIndex: Int) : Msg
         data class ReorderProjects(val fromIndex: Int, val toIndex: Int) : Msg
+        data class AppendMessage(val message: ChatMessage) : Msg
+        data class SetChatDraft(val draft: String) : Msg
+        data class SetMeetingNotes(val notes: List<MeetingNote>) : Msg
+        data class SetMeetingNoteTemplates(val templates: List<MeetingNoteTemplate>) : Msg
+        data class SetLoadingMeetingNotes(val isLoading: Boolean) : Msg
+        data class PrependMeetingNote(val note: MeetingNote) : Msg
+        data class SelectMeetingNote(val noteId: Long?) : Msg
+        data class SetCreateNoteOpen(val isOpen: Boolean) : Msg
+        data class SetCreateNoteTitle(val title: String) : Msg
+        data class SetCreateNoteSectionContent(val sectionTitle: String, val content: String) : Msg
+        data class SetCreatingNote(val isCreating: Boolean) : Msg
+        data object ResetCreateNoteForm : Msg
     }
 
     private object Reducer : com.arkivanov.mvikotlin.core.store.Reducer<State, Msg> {
@@ -564,6 +696,9 @@ class MainStoreFactory(
                 messages = emptyList(),
                 threads = emptyList(),
                 webhooks = emptyList(),
+                meetingNotes = emptyList(),
+                meetingNoteTemplates = emptyList(),
+                selectedMeetingNoteId = null,
             )
             is Msg.SelectProject -> copy(selectedProjectId = msg.projectId)
             is Msg.SetChannels -> copy(
@@ -669,6 +804,28 @@ class MainStoreFactory(
                 list.add(msg.toIndex, item)
                 copy(projects = list)
             }
+            is Msg.AppendMessage -> {
+                if (msg.message.channelId != selectedChannelId) this
+                else copy(messages = messages + msg.message)
+            }
+            is Msg.SetChatDraft -> copy(chatDraft = msg.draft)
+            is Msg.SetMeetingNotes -> copy(meetingNotes = msg.notes)
+            is Msg.SetMeetingNoteTemplates -> copy(meetingNoteTemplates = msg.templates)
+            is Msg.SetLoadingMeetingNotes -> copy(isLoadingMeetingNotes = msg.isLoading)
+            is Msg.PrependMeetingNote -> copy(meetingNotes = listOf(msg.note) + meetingNotes)
+            is Msg.SelectMeetingNote -> copy(selectedMeetingNoteId = msg.noteId)
+            is Msg.SetCreateNoteOpen -> copy(isCreateMeetingNoteOpen = msg.isOpen, error = null)
+            is Msg.SetCreateNoteTitle -> copy(createNoteTitle = msg.title)
+            is Msg.SetCreateNoteSectionContent -> copy(
+                createNoteSectionContents = createNoteSectionContents + (msg.sectionTitle to msg.content)
+            )
+            is Msg.SetCreatingNote -> copy(isCreatingNote = msg.isCreating)
+            Msg.ResetCreateNoteForm -> copy(
+                isCreateMeetingNoteOpen = false,
+                createNoteTitle = "",
+                createNoteSectionContents = emptyMap(),
+                isCreatingNote = false,
+            )
         }
     }
 }

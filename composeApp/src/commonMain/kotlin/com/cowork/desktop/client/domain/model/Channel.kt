@@ -3,10 +3,12 @@ package com.cowork.desktop.client.domain.model
 data class Channel(
     val id: Long,
     val teamId: Long,
+    val projectId: Long?,
     val name: String,
     val type: ChannelType,
     val description: String?,
     val isPrivate: Boolean,
+    val position: Int,
 )
 
 data class ChannelMember(

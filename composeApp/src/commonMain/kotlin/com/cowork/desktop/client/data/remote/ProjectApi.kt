@@ -93,6 +93,13 @@ class ProjectApi(
         }
     }
 
+    suspend fun reorderProjects(accessToken: String, teamId: Long, orderedProjectIds: List<Long>): List<Project> =
+        client.patch("$baseUrl/teams/$teamId/projects/reorder") {
+            bearerAuth(accessToken)
+            contentType(ContentType.Application.Json)
+            setBody(ReorderProjectsRequest(orderedProjectIds))
+        }.body<ApiResponse<List<ProjectResponse>>>().data.orEmpty().map(ProjectResponse::toDomain)
+
     private companion object {
         const val PAGE_SIZE = 50
     }
@@ -117,6 +124,9 @@ class ProjectApi(
 
     @Serializable
     private data class AddProjectMemberRequest(val userId: Long, val role: String)
+
+    @Serializable
+    private data class ReorderProjectsRequest(val orderedProjectIds: List<Long>)
 
     @Serializable
     private data class ProjectResponse(
