@@ -575,9 +575,7 @@ class MainStoreFactory(
         private fun buildNoteContent(sections: Map<String, String>): String {
             if (sections.isEmpty()) return "{}"
             return kotlinx.serialization.json.buildJsonObject {
-                sections.forEach { (k, v) ->
-                    put(k, kotlinx.serialization.json.JsonPrimitive(v))
-                }
+                sections.forEach { (k, v) -> put(k, v) }
             }.toString()
         }
 
