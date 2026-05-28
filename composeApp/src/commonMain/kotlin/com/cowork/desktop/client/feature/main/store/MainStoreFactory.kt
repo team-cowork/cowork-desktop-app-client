@@ -42,6 +42,7 @@ import com.cowork.desktop.client.util.parseJwtClaims
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.put
 
 class MainStoreFactory(
     private val storeFactory: StoreFactory,
