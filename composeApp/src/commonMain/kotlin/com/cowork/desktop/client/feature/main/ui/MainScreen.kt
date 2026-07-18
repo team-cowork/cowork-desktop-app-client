@@ -85,11 +85,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -135,13 +137,22 @@ import com.cowork.desktop.client.domain.model.Webhook
 import com.cowork.desktop.client.domain.model.UserStatus
 import com.cowork.desktop.client.feature.main.component.MainComponent
 import com.cowork.desktop.client.feature.main.store.MainStore
+import com.cowork.desktop.client.data.repository.ChatRepository
+import com.cowork.desktop.client.data.repository.ThreadRepository
+import com.cowork.desktop.client.data.repository.UserRepository
+import com.cowork.desktop.client.data.repository.WebhookRepository
+import com.cowork.desktop.client.data.repository.MeetingNoteRepository
+import com.cowork.desktop.client.domain.model.UserProfileUpdate
+import com.cowork.desktop.client.domain.model.UserStatusUpdate
 import com.cowork.desktop.client.ui.theme.coworkExtendedColors
+import com.cowork.desktop.client.ui.theme.CoworkTheme
 import com.cowork.desktop.client.util.decodeImageBitmap
 import com.cowork.desktop.client.util.horizontalResizeCursor
 import com.cowork.desktop.client.util.pickImageBytes
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.readRawBytes
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.cowork.desktop.client.Res
 import com.cowork.desktop.client.logo_cowork
@@ -168,7 +179,14 @@ fun MainScreen(component: MainComponent) {
     var channelPaneWidth by remember {
         mutableStateOf(component.layoutPreferenceStorage.getChannelPaneWidth()?.dp?.coerceIn(220.dp, 420.dp) ?: 280.dp)
     }
+    var managedTeamId by remember { mutableStateOf<Long?>(null) }
+    var managedChannelId by remember { mutableStateOf<Long?>(null) }
+    var isPeopleDirectoryOpen by remember { mutableStateOf(false) }
+    var directMessageChannelId by remember { mutableStateOf<Long?>(null) }
+    var isMessageSearchOpen by remember { mutableStateOf(false) }
+    var isJoinTeamOpen by remember { mutableStateOf(false) }
 
+    CoworkTheme(darkTheme = state.accountTheme == AppTheme.Dark) {
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
@@ -180,6 +198,8 @@ fun MainScreen(component: MainComponent) {
                     width = teamRailWidth,
                     onTeamClick = component::onTeamClick,
                     onCreateTeamClick = component::onCreateTeamClick,
+                    onManageTeam = { managedTeamId = it },
+                    onJoinTeam = { isJoinTeamOpen = true },
                 )
 
                 VerticalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.34f))
@@ -195,6 +215,10 @@ fun MainScreen(component: MainComponent) {
                     onReorderChannels = component::onReorderChannels,
                     onReorderProjects = component::onReorderProjects,
                     onThreadClick = component::onThreadClick,
+                    onManageTeam = { managedTeamId = state.selectedTeamId },
+                    onManageChannel = { managedChannelId = it },
+                    onOpenPeople = { isPeopleDirectoryOpen = true },
+                    onOpenSearch = { isMessageSearchOpen = true },
                 )
 
                 VerticalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f))
@@ -294,9 +318,64 @@ fun MainScreen(component: MainComponent) {
                     onTimeFormatChange = component::onTimeFormatChange,
                     onDateFormatChange = component::onDateFormatChange,
                     onMarketingEmailChange = component::onMarketingEmailChange,
+                    onReload = component::onReloadClick,
+                )
+            }
+
+            state.teams.firstOrNull { it.id == managedTeamId }?.let { team ->
+                TeamManagementDialog(
+                    teamSummary = team,
+                    currentUserId = state.accountId,
+                    onDismiss = { managedTeamId = null },
+                    onChanged = component::onReloadClick,
+                )
+            }
+
+            state.channels.firstOrNull { it.id == managedChannelId }?.let { channel ->
+                ChannelManagementDialog(
+                    channel = channel,
+                    accountId = state.accountId,
+                    canManage = state.selectedTeam?.myRole?.isAtLeastAdmin() == true || channel.createdBy == state.accountId,
+                    profiles = state.memberProfiles,
+                    projects = state.projects,
+                    onDismiss = { managedChannelId = null },
+                    onChanged = component::onReloadClick,
+                )
+            }
+
+            if (isPeopleDirectoryOpen) {
+                PeopleDirectoryDialog(
+                    onDismiss = { isPeopleDirectoryOpen = false },
+                    onDirectMessageOpened = { channelId ->
+                        isPeopleDirectoryOpen = false
+                        directMessageChannelId = channelId
+                    },
+                )
+            }
+
+            directMessageChannelId?.let { channelId ->
+                DirectMessageDialog(channelId = channelId, onDismiss = { directMessageChannelId = null })
+            }
+
+            if (isMessageSearchOpen && state.selectedTeamId != null) {
+                MessageSearchDialog(
+                    teamId = state.selectedTeamId!!,
+                    projectId = state.selectedProjectId,
+                    onDismiss = { isMessageSearchOpen = false },
+                )
+            }
+
+            if (isJoinTeamOpen) {
+                JoinTeamDialog(
+                    onDismiss = { isJoinTeamOpen = false },
+                    onJoined = {
+                        isJoinTeamOpen = false
+                        component.onReloadClick()
+                    },
                 )
             }
         }
+    }
     }
 }
 
@@ -306,6 +385,8 @@ private fun TeamRail(
     width: Dp,
     onTeamClick: (Long) -> Unit,
     onCreateTeamClick: () -> Unit,
+    onManageTeam: (Long) -> Unit,
+    onJoinTeam: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -334,11 +415,15 @@ private fun TeamRail(
                     team = team,
                     isSelected = team.id == state.selectedTeamId,
                     onClick = { onTeamClick(team.id) },
+                    onManage = { onManageTeam(team.id) },
                 )
             }
 
             item {
                 AddTeamButton(onClick = onCreateTeamClick)
+            }
+            item {
+                JoinTeamButton(onClick = onJoinTeam)
             }
         }
     }
@@ -371,6 +456,21 @@ private fun AddTeamButton(onClick: () -> Unit) {
 }
 
 @Composable
+private fun JoinTeamButton(onClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+    Surface(
+        modifier = Modifier.size(36.dp).hoverable(interactionSource).clickable(onClick = onClick),
+        color = if (isHovered) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+        shape = CircleShape,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(Icons.Rounded.Link, contentDescription = "초대 코드로 팀 참여", modifier = Modifier.size(17.dp), tint = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+@Composable
 private fun CoworkLogoIcon() {
     Image(
         painter = painterResource(Res.drawable.logo_cowork),
@@ -384,6 +484,7 @@ private fun TeamAvatar(
     team: TeamSummary,
     isSelected: Boolean,
     onClick: () -> Unit,
+    onManage: () -> Unit,
 ) {
     val background = if (isSelected) MaterialTheme.colorScheme.primary
                      else MaterialTheme.colorScheme.primaryContainer
@@ -392,6 +493,8 @@ private fun TeamAvatar(
     var contextMenuVisible by remember { mutableStateOf(false) }
     @Suppress("DEPRECATION")
     val clipboardManager = LocalClipboardManager.current
+    val httpClient = koinInject<HttpClient>()
+    val iconBitmap = rememberRemoteImageBitmap(team.iconUrl, httpClient)
 
     Box {
         Box(
@@ -412,12 +515,21 @@ private fun TeamAvatar(
                 },
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = team.name.firstOrNull()?.uppercase() ?: "?",
-                color = foreground,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
-            )
+            if (iconBitmap != null) {
+                Image(
+                    bitmap = iconBitmap,
+                    contentDescription = team.name,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            } else {
+                Text(
+                    text = team.name.firstOrNull()?.uppercase() ?: "?",
+                    color = foreground,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
         }
         DropdownMenu(
             expanded = contextMenuVisible,
@@ -440,43 +552,15 @@ private fun TeamAvatar(
                 },
                 leadingIcon = { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(16.dp)) },
             )
-            if (team.myRole.isAtLeastAdmin()) {
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                DropdownMenuItem(
-                    text = { Text("팀 설정", style = MaterialTheme.typography.bodySmall) },
-                    onClick = { contextMenuVisible = false },
-                    leadingIcon = { Icon(Icons.Rounded.Settings, null, Modifier.size(16.dp)) },
-                    enabled = false,
-                )
-                DropdownMenuItem(
-                    text = { Text("팀원 관리", style = MaterialTheme.typography.bodySmall) },
-                    onClick = { contextMenuVisible = false },
-                    leadingIcon = { Icon(Icons.Rounded.Person, null, Modifier.size(16.dp)) },
-                    enabled = false,
-                )
-                DropdownMenuItem(
-                    text = { Text("초대 링크 생성", style = MaterialTheme.typography.bodySmall) },
-                    onClick = { contextMenuVisible = false },
-                    leadingIcon = { Icon(Icons.Rounded.Link, null, Modifier.size(16.dp)) },
-                    enabled = false,
-                )
-            }
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-            if (team.myRole == TeamRole.Owner) {
-                DropdownMenuItem(
-                    text = { Text("팀 삭제", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) },
-                    onClick = { contextMenuVisible = false },
-                    leadingIcon = { Icon(Icons.Rounded.Delete, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error) },
-                    enabled = false,
-                )
-            } else {
-                DropdownMenuItem(
-                    text = { Text("팀 탈퇴", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) },
-                    onClick = { contextMenuVisible = false },
-                    leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Logout, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error) },
-                    enabled = false,
-                )
-            }
+            DropdownMenuItem(
+                text = { Text(if (team.myRole.isAtLeastAdmin()) "팀 관리" else "팀 정보 / 나가기", style = MaterialTheme.typography.bodySmall) },
+                onClick = {
+                    contextMenuVisible = false
+                    onManage()
+                },
+                leadingIcon = { Icon(Icons.Rounded.Settings, null, Modifier.size(16.dp)) },
+            )
         }
     }
 }
@@ -517,6 +601,10 @@ private fun ChannelPane(
     onReorderChannels: (Int, Int) -> Unit,
     onReorderProjects: (Int, Int) -> Unit,
     onThreadClick: (Long) -> Unit,
+    onManageTeam: () -> Unit,
+    onManageChannel: (Long) -> Unit,
+    onOpenPeople: () -> Unit,
+    onOpenSearch: () -> Unit,
 ) {
     Box(
         modifier = Modifier
@@ -550,7 +638,17 @@ private fun ChannelPane(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-
+                if (state.selectedTeamId != null) {
+                    IconButton(onClick = onOpenSearch) {
+                        Icon(Icons.Rounded.Tune, contentDescription = "메시지 검색", modifier = Modifier.size(19.dp))
+                    }
+                    IconButton(onClick = onOpenPeople) {
+                        Icon(Icons.Rounded.Person, contentDescription = "사용자 찾기", modifier = Modifier.size(19.dp))
+                    }
+                    IconButton(onClick = onManageTeam) {
+                        Icon(Icons.Rounded.Settings, contentDescription = "팀 관리", modifier = Modifier.size(19.dp))
+                    }
+                }
             }
 
             if (state.error != null) {
@@ -602,8 +700,10 @@ private fun ChannelPane(
                         ChannelRow(
                             channel = channel,
                             isSelected = channel.id == state.selectedChannelId && !isDragging,
-                            teamRole = state.selectedTeam?.myRole ?: TeamRole.Unknown,
+                            canManage = state.selectedTeam?.myRole?.isAtLeastAdmin() == true || channel.createdBy == state.accountId,
                             onClick = { onChannelClick(channel.id) },
+                            onManage = { onManageChannel(channel.id) },
+                            unreadCount = state.unreadCounts[channel.id] ?: 0,
                         )
                         if (channel.id == state.selectedChannelId && channel.type == ChannelType.Text) {
                             state.threads.filter { !it.isArchived }.forEach { thread ->
@@ -1325,8 +1425,10 @@ private fun ChevronRight(color: Color) {
 private fun ChannelRow(
     channel: Channel,
     isSelected: Boolean,
-    teamRole: TeamRole,
+    canManage: Boolean,
     onClick: () -> Unit,
+    onManage: () -> Unit,
+    unreadCount: Int,
 ) {
     var contextMenuVisible by remember { mutableStateOf(false) }
     @Suppress("DEPRECATION")
@@ -1370,6 +1472,16 @@ private fun ChannelRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (unreadCount > 0) {
+                Surface(color = MaterialTheme.colorScheme.primary, shape = CircleShape) {
+                    Text(
+                        if (unreadCount > 99) "99+" else unreadCount.toString(),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                }
+            }
         }
         DropdownMenu(
             expanded = contextMenuVisible,
@@ -1392,19 +1504,23 @@ private fun ChannelRow(
                 },
                 leadingIcon = { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(16.dp)) },
             )
-            if (teamRole.isAtLeastAdmin()) {
+            if (canManage) {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                 DropdownMenuItem(
                     text = { Text("채널 편집", style = MaterialTheme.typography.bodySmall) },
-                    onClick = { contextMenuVisible = false },
+                    onClick = {
+                        contextMenuVisible = false
+                        onManage()
+                    },
                     leadingIcon = { Icon(Icons.Rounded.Edit, null, Modifier.size(16.dp)) },
-                    enabled = false,
                 )
                 DropdownMenuItem(
-                    text = { Text("채널 삭제", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) },
-                    onClick = { contextMenuVisible = false },
-                    leadingIcon = { Icon(Icons.Rounded.Delete, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error) },
-                    enabled = false,
+                    text = { Text("멤버 및 알림", style = MaterialTheme.typography.bodySmall) },
+                    onClick = {
+                        contextMenuVisible = false
+                        onManage()
+                    },
+                    leadingIcon = { Icon(Icons.Rounded.Person, null, Modifier.size(16.dp)) },
                 )
             }
         }
@@ -1492,31 +1608,12 @@ private fun ProjectRow(
             if (teamRole.isAtLeastAdmin()) {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                 DropdownMenuItem(
-                    text = { Text("프로젝트 편집", style = MaterialTheme.typography.bodySmall) },
-                    onClick = { contextMenuVisible = false },
+                    text = { Text("프로젝트 관리 열기", style = MaterialTheme.typography.bodySmall) },
+                    onClick = {
+                        contextMenuVisible = false
+                        onClick()
+                    },
                     leadingIcon = { Icon(Icons.Rounded.Edit, null, Modifier.size(16.dp)) },
-                    enabled = false,
-                )
-                if (project.status == ProjectStatus.Active) {
-                    DropdownMenuItem(
-                        text = { Text("프로젝트 보관", style = MaterialTheme.typography.bodySmall) },
-                        onClick = { contextMenuVisible = false },
-                        leadingIcon = { Icon(Icons.Rounded.FolderOpen, null, Modifier.size(16.dp)) },
-                        enabled = false,
-                    )
-                } else {
-                    DropdownMenuItem(
-                        text = { Text("보관 해제", style = MaterialTheme.typography.bodySmall) },
-                        onClick = { contextMenuVisible = false },
-                        leadingIcon = { Icon(Icons.Rounded.FolderOpen, null, Modifier.size(16.dp)) },
-                        enabled = false,
-                    )
-                }
-                DropdownMenuItem(
-                    text = { Text("프로젝트 삭제", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) },
-                    onClick = { contextMenuVisible = false },
-                    leadingIcon = { Icon(Icons.Rounded.Delete, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error) },
-                    enabled = false,
                 )
             }
         }
@@ -1566,10 +1663,22 @@ private fun ThreadSidebarRow(thread: Thread, isSelected: Boolean, onClick: () ->
 
 @Composable
 private fun ThreadListDialog(state: MainStore.State, component: MainComponent) {
+    val threadRepository = koinInject<ThreadRepository>()
+    val scope = rememberCoroutineScope()
     var showArchived by remember { mutableStateOf(false) }
-    val displayedThreads = remember(state.threads, showArchived) {
-        if (showArchived) state.threads else state.threads.filter { !it.isArchived }
+    var allThreads by remember(state.selectedChannelId) { mutableStateOf(state.threads) }
+    var archiveLoadError by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(state.threads, showArchived) {
+        if (!showArchived) {
+            allThreads = state.threads
+        } else {
+            val channelId = state.selectedChannelId ?: return@LaunchedEffect
+            runCatching { threadRepository.getThreads(channelId, includeArchived = true) }
+                .onSuccess { allThreads = it }
+                .onFailure { archiveLoadError = it.userMessage() }
+        }
     }
+    val displayedThreads = if (showArchived) allThreads else allThreads.filter { !it.isArchived }
 
     Dialog(onDismissRequest = component::onCloseThreadList) {
         Surface(
@@ -1605,6 +1714,7 @@ private fun ThreadListDialog(state: MainStore.State, component: MainComponent) {
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
+                archiveLoadError?.let { ManagementError(it) }
 
                 when {
                     state.isLoadingThreads -> Box(
@@ -1690,8 +1800,30 @@ private fun ThreadDetailDialog(
     state: MainStore.State,
     component: MainComponent,
 ) {
-    val threadMessages = remember(state.messages, thread.parentMessageId) {
-        state.messages.filter { it.parentMessageId == thread.parentMessageId }
+    val chatRepository = koinInject<ChatRepository>()
+    val threadRepository = koinInject<ThreadRepository>()
+    val scope = rememberCoroutineScope()
+    var replyDraft by remember(thread.id) { mutableStateOf("") }
+    var actionError by remember(thread.id) { mutableStateOf<String?>(null) }
+    var threadMessages by remember(thread.id) { mutableStateOf<List<com.cowork.desktop.client.domain.model.ChatMessage>>(emptyList()) }
+    var isLoadingReplies by remember(thread.id) { mutableStateOf(true) }
+    val canManageThread = thread.createdBy == state.accountId ||
+        state.selectedChannel?.createdBy == state.accountId ||
+        state.selectedTeam?.myRole?.isAtLeastAdmin() == true
+
+    LaunchedEffect(thread.id) {
+        isLoadingReplies = true
+        actionError = null
+        while (true) {
+            runCatching {
+                loadThreadReplies(chatRepository, thread.channelId, thread.parentMessageId)
+            }.onSuccess {
+                threadMessages = it
+                actionError = null
+            }.onFailure { actionError = it.userMessage() }
+            isLoadingReplies = false
+            delay(5_000)
+        }
     }
 
     Dialog(onDismissRequest = component::onCloseThread) {
@@ -1724,6 +1856,18 @@ private fun ThreadDetailDialog(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    if (canManageThread) {
+                        TextButton(onClick = {
+                            scope.launch {
+                                runCatching {
+                                    threadRepository.updateThread(thread.channelId, thread.id, isArchived = !thread.isArchived)
+                                }.onSuccess {
+                                    component.onChannelClick(thread.channelId)
+                                    component.onCloseThread()
+                                }.onFailure { actionError = it.userMessage() }
+                            }
+                        }) { Text(if (thread.isArchived) "보관 해제" else "보관") }
+                    }
                     IconButton(onClick = component::onCloseThread, modifier = Modifier.size(28.dp)) {
                         Icon(
                             imageVector = Icons.Rounded.Close,
@@ -1736,7 +1880,12 @@ private fun ThreadDetailDialog(
                 HorizontalDivider()
 
                 // 메시지 목록
-                if (threadMessages.isEmpty()) {
+                if (isLoadingReplies) {
+                    Box(
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        contentAlignment = Alignment.Center,
+                    ) { CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.dp) }
+                } else if (threadMessages.isEmpty()) {
                     Box(
                         modifier = Modifier.weight(1f).fillMaxWidth(),
                         contentAlignment = Alignment.Center,
@@ -1767,13 +1916,99 @@ private fun ThreadDetailDialog(
                         }
                     }
                 }
+                actionError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) }
+                OutlinedTextField(
+                    value = replyDraft,
+                    onValueChange = { replyDraft = it },
+                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    placeholder = { Text("스레드에 답글…") },
+                    enabled = !thread.isArchived,
+                    trailingIcon = {
+                        TextButton(
+                            onClick = {
+                                val content = replyDraft.trim()
+                                if (content.isEmpty()) return@TextButton
+                                scope.launch {
+                                    val optimisticId = "optimistic-thread-${System.currentTimeMillis()}"
+                                    val optimistic = com.cowork.desktop.client.domain.model.ChatMessage(
+                                        id = optimisticId,
+                                        teamId = state.selectedTeamId,
+                                        projectId = state.selectedProjectId,
+                                        channelId = thread.channelId,
+                                        authorId = state.accountId ?: -1,
+                                        content = content,
+                                        parentMessageId = thread.parentMessageId,
+                                        type = com.cowork.desktop.client.domain.model.MessageType.Text,
+                                        fileUrl = null,
+                                        fileName = null,
+                                        fileSize = null,
+                                        createdAt = null,
+                                        clientMessageId = optimisticId,
+                                    )
+                                    val result = runCatching {
+                                        chatRepository.sendMessage(
+                                            channelId = thread.channelId,
+                                            teamId = state.selectedTeamId,
+                                            projectId = state.selectedProjectId,
+                                            content = content,
+                                            parentMessageId = thread.parentMessageId,
+                                            clientMessageId = optimisticId,
+                                        )
+                                    }
+                                    if (result.isFailure) {
+                                        actionError = result.exceptionOrNull()?.userMessage()
+                                        return@launch
+                                    }
+                                    replyDraft = ""
+                                    threadMessages = listOf(optimistic) + threadMessages
+                                    for (waitMillis in listOf(500L, 1_000L, 2_000L)) {
+                                        delay(waitMillis)
+                                        val loaded = runCatching {
+                                            loadThreadReplies(chatRepository, thread.channelId, thread.parentMessageId)
+                                        }.getOrNull() ?: continue
+                                        val persisted = loaded.any {
+                                            it.clientMessageId == optimisticId ||
+                                                (it.authorId == optimistic.authorId && it.content == content)
+                                        }
+                                        threadMessages = if (persisted) loaded else {
+                                            (listOf(optimistic) + loaded).distinctBy { it.id }
+                                        }
+                                        if (persisted) break
+                                    }
+                                }
+                            },
+                            enabled = replyDraft.isNotBlank(),
+                        ) { Text("전송") }
+                    },
+                )
             }
         }
     }
 }
 
+private suspend fun loadThreadReplies(
+    chatRepository: ChatRepository,
+    channelId: Long,
+    parentMessageId: String,
+): List<com.cowork.desktop.client.domain.model.ChatMessage> {
+    val messages = mutableListOf<com.cowork.desktop.client.domain.model.ChatMessage>()
+    var before: String? = null
+    repeat(10) {
+        val page = chatRepository.getMessages(
+            channelId = channelId,
+            before = before,
+            limit = 100,
+            parentMessageId = parentMessageId,
+        )
+        messages += page
+        if (page.size < 100) return messages.distinctBy { it.id }
+        before = page.lastOrNull()?.id ?: return messages.distinctBy { it.id }
+    }
+    return messages.distinctBy { it.id }
+}
+
 @Composable
-private fun WebhookRow(webhook: Webhook, onDelete: () -> Unit) {
+private fun WebhookRow(webhook: Webhook, canManage: Boolean, onEdit: () -> Unit, onDelete: () -> Unit) {
     Surface(
         shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.surface,
@@ -1815,13 +2050,16 @@ private fun WebhookRow(webhook: Webhook, onDelete: () -> Unit) {
                     )
                 }
             }
-            IconButton(onClick = onDelete) {
-                Icon(
-                    imageVector = Icons.Rounded.Close,
-                    contentDescription = "삭제",
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            if (canManage) {
+                TextButton(onClick = onEdit) { Text("편집") }
+                IconButton(onClick = onDelete) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = "삭제",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }
@@ -1878,6 +2116,37 @@ private fun AddWebhookDialog(state: MainStore.State, component: MainComponent) {
                             Text("추가")
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EditWebhookDialog(
+    webhook: Webhook,
+    onDismiss: () -> Unit,
+    onSave: (String, String?, Boolean) -> Unit,
+) {
+    var name by remember(webhook.id) { mutableStateOf(webhook.name) }
+    var avatarUrl by remember(webhook.id) { mutableStateOf(webhook.avatarUrl.orEmpty()) }
+    var isSecure by remember(webhook.id) { mutableStateOf(webhook.isSecure) }
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface, tonalElevation = 6.dp) {
+            Column(Modifier.width(440.dp).padding(22.dp)) {
+                Text("웹훅 편집", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(name, { name = it }, label = { Text("이름") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(avatarUrl, { avatarUrl = it }, label = { Text("아바타 URL") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("보안 토큰 사용", modifier = Modifier.weight(1f))
+                    Switch(isSecure, { isSecure = it })
+                }
+                Spacer(Modifier.height(14.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) { Text("취소") }
+                    Button(onClick = { onSave(name.trim(), avatarUrl.trim().ifBlank { null }, isSecure) }, enabled = name.isNotBlank()) { Text("저장") }
                 }
             }
         }
@@ -1950,7 +2219,12 @@ private fun WorkspacePane(state: MainStore.State, component: MainComponent) {
     ) {
         when {
             selectedChannel != null -> ChannelWorkspace(state = state, channel = selectedChannel, component = component)
-            selectedProject != null -> ProjectWorkspace(project = selectedProject)
+            selectedProject != null -> ProjectWorkspaceContent(
+                project = selectedProject,
+                teamCanManage = state.selectedTeam?.myRole?.isAtLeastAdmin() == true,
+                currentUserId = state.accountId,
+                onChanged = component::onReloadClick,
+            )
             else -> EmptyWorkspace(state = state)
         }
     }
@@ -2017,16 +2291,34 @@ private fun ColumnScope.ChannelWorkspace(state: MainStore.State, channel: Channe
     when (channel.type) {
         ChannelType.Text -> TextChannelContent(state = state, component = component)
         ChannelType.Webhook -> WebhookChannelContent(state = state, component = component)
-        ChannelType.Voice -> ComingSoonContent(icon = Icons.AutoMirrored.Rounded.VolumeUp, message = "음성 채팅은 추후 지원될 예정입니다.")
+        ChannelType.Voice -> VoiceChannelContent(channel)
         ChannelType.MeetingNote -> MeetingNoteChannelContent(state = state, component = component)
-        ChannelType.AccountShare -> ComingSoonContent(icon = Icons.Rounded.Person, message = "계정 공유 기능은 추후 지원될 예정입니다.")
-        ChannelType.FileShare -> ComingSoonContent(icon = Icons.AutoMirrored.Rounded.Article, message = "파일 공유 기능은 추후 지원될 예정입니다.")
+        ChannelType.AccountShare -> AccountShareChannelContent(
+            channel = channel,
+            accountId = state.accountId,
+            canManageChannel = state.selectedTeam?.myRole?.isAtLeastAdmin() == true || channel.createdBy == state.accountId,
+        )
+        ChannelType.FileShare -> FileShareChannelContent(
+            channel = channel,
+            accountId = state.accountId,
+            isSystemAdmin = state.isSystemAdmin,
+        )
         ChannelType.Unknown -> ComingSoonContent(icon = Icons.AutoMirrored.Rounded.HelpOutline, message = "알 수 없는 채널 타입입니다.")
     }
 }
 
 @Composable
 private fun ColumnScope.TextChannelContent(state: MainStore.State, component: MainComponent) {
+    val chatRepository = koinInject<ChatRepository>()
+    val scope = rememberCoroutineScope()
+    var pinnedMessages by remember(state.selectedChannelId) { mutableStateOf<List<com.cowork.desktop.client.domain.model.ChatMessage>>(emptyList()) }
+    var isPinnedDialogOpen by remember(state.selectedChannelId) { mutableStateOf(false) }
+
+    LaunchedEffect(state.selectedChannelId, state.messages.firstOrNull()?.id) {
+        val channelId = state.selectedChannelId ?: return@LaunchedEffect
+        val lastMessageId = state.messages.firstOrNull()?.id ?: return@LaunchedEffect
+        runCatching { chatRepository.markChannelRead(channelId, lastMessageId) }
+    }
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -2038,19 +2330,36 @@ private fun ColumnScope.TextChannelContent(state: MainStore.State, component: Ma
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground,
         )
-        IconButton(onClick = component::onOpenThreadList) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Rounded.Article,
-                contentDescription = "스레드 목록",
-                modifier = Modifier.size(20.dp),
-                tint = if (state.threads.any { !it.isArchived })
-                    MaterialTheme.colorScheme.primary
-                else
-                    MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        Row {
+            TextButton(onClick = {
+                val channelId = state.selectedChannelId ?: return@TextButton
+                scope.launch {
+                    pinnedMessages = runCatching { chatRepository.getPinnedMessages(channelId) }.getOrDefault(emptyList())
+                    isPinnedDialogOpen = true
+                }
+            }) { Text("고정됨") }
+            IconButton(onClick = component::onOpenThreadList) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.Article,
+                    contentDescription = "스레드 목록",
+                    modifier = Modifier.size(20.dp),
+                    tint = if (state.threads.any { !it.isArchived })
+                        MaterialTheme.colorScheme.primary
+                    else
+                        MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
     Spacer(modifier = Modifier.height(4.dp))
+    if (state.typingUserIds.isNotEmpty()) {
+        Text(
+            state.typingUserIds.joinToString { state.memberProfiles[it]?.nickname ?: state.memberProfiles[it]?.name ?: "사용자 $it" } + " 입력 중…",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(Modifier.height(4.dp))
+    }
 
     when {
         state.isLoadingMessages -> CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
@@ -2111,10 +2420,36 @@ private fun ColumnScope.TextChannelContent(state: MainStore.State, component: Ma
             component = component,
         )
     }
+
+    if (isPinnedDialogOpen) {
+        ManagementDialogShell(
+            title = "고정된 메시지",
+            onDismiss = { isPinnedDialogOpen = false },
+            sidebar = { Text("Pins", Modifier.padding(10.dp), fontWeight = FontWeight.Bold) },
+        ) {
+            if (pinnedMessages.isEmpty()) {
+                Text("고정된 메시지가 없습니다.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            pinnedMessages.forEach { message ->
+                Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .5f), shape = RoundedCornerShape(10.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                        Text(message.content)
+                        Text("사용자 ${message.authorId}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+        }
+    }
 }
 
 @Composable
 private fun ColumnScope.WebhookChannelContent(state: MainStore.State, component: MainComponent) {
+    val webhookRepository = koinInject<WebhookRepository>()
+    val scope = rememberCoroutineScope()
+    var editingWebhook by remember(state.selectedChannelId) { mutableStateOf<Webhook?>(null) }
+    var editError by remember { mutableStateOf<String?>(null) }
+    val canManage = state.selectedTeam?.myRole?.isAtLeastAdmin() == true || state.selectedChannel?.createdBy == state.accountId
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -2126,13 +2461,16 @@ private fun ColumnScope.WebhookChannelContent(state: MainStore.State, component:
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground,
         )
-        TextButton(onClick = component::onAddWebhookClick) {
-            Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-            Spacer(modifier = Modifier.width(4.dp))
-            Text("웹훅 추가")
+        if (canManage) {
+            TextButton(onClick = component::onAddWebhookClick) {
+                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("웹훅 추가")
+            }
         }
     }
     Spacer(modifier = Modifier.height(12.dp))
+    editError?.let { ManagementError(it) }
 
     when {
         state.isLoadingWebhooks -> CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
@@ -2141,14 +2479,33 @@ private fun ColumnScope.WebhookChannelContent(state: MainStore.State, component:
             state.webhooks.forEach { webhook ->
                 WebhookRow(
                     webhook = webhook,
+                    canManage = canManage,
+                    onEdit = { editingWebhook = webhook },
                     onDelete = { component.onDeleteWebhook(webhook.id) },
                 )
             }
         }
     }
 
-    if (state.isAddWebhookOpen) {
+    if (state.isAddWebhookOpen && canManage) {
         AddWebhookDialog(state = state, component = component)
+    }
+    editingWebhook?.takeIf { canManage }?.let { webhook ->
+        EditWebhookDialog(
+            webhook = webhook,
+            onDismiss = { editingWebhook = null },
+            onSave = { name, avatarUrl, isSecure ->
+                val channelId = state.selectedChannelId ?: return@EditWebhookDialog
+                scope.launch {
+                    runCatching { webhookRepository.updateWebhook(channelId, webhook.id, name, avatarUrl, isSecure) }
+                        .onSuccess {
+                            editingWebhook = null
+                            component.onChannelClick(channelId)
+                        }
+                        .onFailure { editError = it.userMessage() }
+                }
+            },
+        )
     }
 }
 
@@ -2176,6 +2533,7 @@ private fun ColumnScope.ComingSoonContent(icon: ImageVector, message: String) {
 
 @Composable
 private fun ColumnScope.MeetingNoteChannelContent(state: MainStore.State, component: MainComponent) {
+    var isTemplateManagerOpen by remember(state.selectedChannelId) { mutableStateOf(false) }
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -2187,12 +2545,15 @@ private fun ColumnScope.MeetingNoteChannelContent(state: MainStore.State, compon
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground,
         )
+        Row {
+            TextButton(onClick = { isTemplateManagerOpen = true }) { Text("템플릿 관리") }
         if (state.activeTemplate != null) {
             TextButton(onClick = component::onCreateMeetingNoteClick) {
                 Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(4.dp))
                 Text("새 회의록")
             }
+        }
         }
     }
     Spacer(modifier = Modifier.height(12.dp))
@@ -2217,7 +2578,25 @@ private fun ColumnScope.MeetingNoteChannelContent(state: MainStore.State, compon
 
     val selectedNote = state.selectedMeetingNote
     if (selectedNote != null) {
-        MeetingNoteDetailDialog(note = selectedNote, onDismiss = component::onMeetingNoteDetailDismiss)
+        MeetingNoteDetailDialog(
+            note = selectedNote,
+            canEdit = selectedNote.createdBy == state.accountId,
+            onDismiss = component::onMeetingNoteDetailDismiss,
+            onChanged = {
+                component.onMeetingNoteDetailDismiss()
+                component.onChannelClick(selectedNote.channelId)
+            },
+        )
+    }
+    if (isTemplateManagerOpen) {
+        val channelId = state.selectedChannelId
+        if (channelId != null) {
+            MeetingTemplateManagerDialog(
+                channelId = channelId,
+                onDismiss = { isTemplateManagerOpen = false },
+                onChanged = { component.onChannelClick(channelId) },
+            )
+        }
     }
 }
 
@@ -2306,8 +2685,17 @@ private fun CreateMeetingNoteDialog(state: MainStore.State, component: MainCompo
 @Composable
 private fun MeetingNoteDetailDialog(
     note: com.cowork.desktop.client.domain.model.MeetingNote,
+    canEdit: Boolean,
     onDismiss: () -> Unit,
+    onChanged: () -> Unit,
 ) {
+    val repository = koinInject<MeetingNoteRepository>()
+    val scope = rememberCoroutineScope()
+    var isEditing by remember(note.id) { mutableStateOf(false) }
+    var title by remember(note.id) { mutableStateOf(note.title) }
+    var content by remember(note.id) { mutableStateOf(note.content) }
+    var error by remember(note.id) { mutableStateOf<String?>(null) }
+    var confirmDelete by remember(note.id) { mutableStateOf(false) }
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = MaterialTheme.shapes.large,
@@ -2322,8 +2710,13 @@ private fun MeetingNoteDetailDialog(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(note.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Rounded.Close, contentDescription = "닫기")
+                    Row {
+                        if (canEdit) {
+                            TextButton(onClick = { isEditing = !isEditing }) { Text(if (isEditing) "보기" else "편집") }
+                        }
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Rounded.Close, contentDescription = "닫기")
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(4.dp))
@@ -2340,66 +2733,40 @@ private fun MeetingNoteDetailDialog(
                     } else note.content
                 }.getOrDefault(note.content)
 
-                Text(contentText, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                if (isEditing) {
+                    OutlinedTextField(title, { title = it }, label = { Text("제목") }, modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(content, { content = it }, label = { Text("내용 (JSON)") }, modifier = Modifier.fillMaxWidth(), minLines = 8)
+                    Spacer(Modifier.height(12.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        if (confirmDelete) {
+                            Button(onClick = {
+                                scope.launch {
+                                    runCatching { repository.deleteNote(note.channelId, note.id) }
+                                        .onSuccess { onChanged() }
+                                        .onFailure { error = it.userMessage() }
+                                }
+                            }) { Text("삭제 확정") }
+                            TextButton(onClick = { confirmDelete = false }) { Text("취소") }
+                        } else {
+                            TextButton(onClick = { confirmDelete = true }) { Text("삭제", color = MaterialTheme.colorScheme.error) }
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Button(onClick = {
+                            scope.launch {
+                                runCatching { repository.updateNote(note.channelId, note.id, title.trim(), content) }
+                                    .onSuccess { onChanged() }
+                                    .onFailure { error = it.userMessage() }
+                            }
+                        }, enabled = title.isNotBlank()) { Text("저장") }
+                    }
+                    error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                } else {
+                    Text(contentText, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                }
             }
         }
     }
-}
-
-@Composable
-private fun ProjectWorkspace(project: Project) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Icon(
-            imageVector = Icons.Rounded.FolderOpen,
-            contentDescription = null,
-            modifier = Modifier.size(22.dp),
-            tint = MaterialTheme.colorScheme.primary,
-        )
-        Text(
-            text = project.name,
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
-        Surface(
-            color = when (project.status) {
-                ProjectStatus.Active -> MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                ProjectStatus.Archived -> MaterialTheme.colorScheme.surfaceVariant
-                ProjectStatus.Unknown -> MaterialTheme.colorScheme.surfaceVariant
-            },
-            shape = MaterialTheme.shapes.small,
-        ) {
-            Text(
-                text = when (project.status) {
-                    ProjectStatus.Active -> "활성"
-                    ProjectStatus.Archived -> "보관됨"
-                    ProjectStatus.Unknown -> "알 수 없음"
-                },
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                style = MaterialTheme.typography.labelSmall,
-                color = when (project.status) {
-                    ProjectStatus.Active -> MaterialTheme.colorScheme.primary
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
-        }
-    }
-
-    project.description?.takeIf { it.isNotBlank() }?.let { description ->
-        Spacer(modifier = Modifier.height(12.dp))
-        Text(
-            text = description,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-
-    Spacer(modifier = Modifier.height(24.dp))
-    Text(
-        text = "칸반 보드, 이슈 트래커 등 작업 영역이 이 패널에 이어서 구현됩니다.",
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
 }
 
 @Composable
@@ -2415,7 +2782,11 @@ private fun MessageRow(
     val isEditing = state.editingMessageId == message.id
     val canEdit = !isOptimistic && state.canEditMessage(message.authorId)
     val canDelete = !isOptimistic && state.canDeleteMessage(message.authorId)
+    val canPin = !isOptimistic && (message.authorId == state.accountId || state.isSystemAdmin)
     val httpClient = koinInject<HttpClient>()
+    val chatRepository = koinInject<ChatRepository>()
+    val threadRepository = koinInject<ThreadRepository>()
+    val scope = rememberCoroutineScope()
     val avatarImage = rememberRemoteImageBitmap(avatarUrl, httpClient)
     val avatarSize = 36.dp
     var contextMenuVisible by remember { mutableStateOf(false) }
@@ -2425,6 +2796,9 @@ private fun MessageRow(
     val clipboardManager = LocalClipboardManager.current
     val hoverInteraction = remember { MutableInteractionSource() }
     val isHovered by hoverInteraction.collectIsHoveredAsState()
+    var actionError by remember(message.id) { mutableStateOf<String?>(null) }
+    var isCreateThreadOpen by remember(message.id) { mutableStateOf(false) }
+    var threadName by remember(message.id) { mutableStateOf("") }
 
     Box(
         modifier = Modifier
@@ -2530,6 +2904,28 @@ private fun MessageRow(
                         }
                     }
                 } else {
+                    if (message.isPinned || message.isEdited) {
+                        Text(
+                            listOfNotNull(
+                                "고정됨".takeIf { message.isPinned },
+                                "수정됨".takeIf { message.isEdited },
+                            ).joinToString(" · "),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    message.mentionedMessage?.let { quoted ->
+                        Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f), shape = RoundedCornerShape(6.dp)) {
+                            Text(
+                                "사용자 ${quoted.authorId}: ${quoted.content}",
+                                modifier = Modifier.fillMaxWidth().padding(7.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Spacer(Modifier.height(4.dp))
+                    }
                     SelectionContainer {
                         Text(
                             text = message.content,
@@ -2537,6 +2933,59 @@ private fun MessageRow(
                             color = MaterialTheme.colorScheme.onBackground,
                         )
                     }
+                    val attachments = buildList {
+                        addAll(message.attachments)
+                        if (message.fileUrl != null && message.fileName != null && none { it.url == message.fileUrl }) {
+                            add(com.cowork.desktop.client.domain.model.ChatAttachment(
+                                name = message.fileName,
+                                url = message.fileUrl,
+                                size = message.fileSize ?: 0,
+                                mimeType = "application/octet-stream",
+                            ))
+                        }
+                    }
+                    if (attachments.isNotEmpty()) {
+                        val uriHandler = LocalUriHandler.current
+                        Spacer(Modifier.height(6.dp))
+                        attachments.forEach { attachment ->
+                            Surface(
+                                modifier = Modifier.fillMaxWidth().clickable { uriHandler.openUri(attachment.url) },
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .5f),
+                                shape = RoundedCornerShape(8.dp),
+                            ) {
+                                Text(
+                                    "${attachment.name} · ${attachment.size} bytes",
+                                    modifier = Modifier.padding(9.dp),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Spacer(Modifier.height(4.dp))
+                        }
+                    }
+                    if (message.reactions.isNotEmpty()) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            message.reactions.forEach { reaction ->
+                                Surface(
+                                    modifier = Modifier.clickable {
+                                        scope.launch {
+                                            runCatching {
+                                                if (reaction.myReaction) chatRepository.removeReaction(message.channelId, message.id, reaction.emoji)
+                                                else chatRepository.addReaction(message.channelId, message.id, reaction.emoji)
+                                            }.onSuccess { component.onChannelClick(message.channelId) }
+                                                .onFailure { actionError = it.userMessage() }
+                                        }
+                                    },
+                                    color = if (reaction.myReaction) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = RoundedCornerShape(10.dp),
+                                ) {
+                                    Text("${reaction.emoji} ${reaction.count}", Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+                    }
+                    actionError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall) }
                 }
             }
         }
@@ -2555,6 +3004,44 @@ private fun MessageRow(
                 },
                 leadingIcon = { Icon(Icons.Rounded.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp)) },
             )
+            if (message.parentMessageId == null && !isOptimistic) {
+                DropdownMenuItem(
+                    text = { Text("스레드 시작", style = MaterialTheme.typography.bodySmall) },
+                    onClick = {
+                        contextMenuVisible = false
+                        threadName = message.content.take(40)
+                        isCreateThreadOpen = true
+                    },
+                )
+            }
+            if (canPin) {
+                DropdownMenuItem(
+                    text = { Text(if (message.isPinned) "고정 해제" else "메시지 고정", style = MaterialTheme.typography.bodySmall) },
+                    onClick = {
+                        contextMenuVisible = false
+                        scope.launch {
+                            runCatching {
+                                if (message.isPinned) chatRepository.unpinMessage(message.channelId, message.id)
+                                else chatRepository.pinMessage(message.channelId, message.id)
+                            }.onSuccess { component.onChannelClick(message.channelId) }
+                                .onFailure { actionError = it.userMessage() }
+                        }
+                    },
+                )
+            }
+            listOf("👍", "❤️", "🎉").forEach { emoji ->
+                DropdownMenuItem(
+                    text = { Text("$emoji 반응", style = MaterialTheme.typography.bodySmall) },
+                    onClick = {
+                        contextMenuVisible = false
+                        scope.launch {
+                            runCatching { chatRepository.addReaction(message.channelId, message.id, emoji) }
+                                .onSuccess { component.onChannelClick(message.channelId) }
+                                .onFailure { actionError = it.userMessage() }
+                        }
+                    },
+                )
+            }
             if (canEdit) {
                 DropdownMenuItem(
                     text = { Text("수정", style = MaterialTheme.typography.bodySmall) },
@@ -2574,6 +3061,35 @@ private fun MessageRow(
                     },
                     leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error) },
                 )
+            }
+        }
+
+        if (isCreateThreadOpen) {
+            Dialog(onDismissRequest = { isCreateThreadOpen = false }) {
+                Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface, tonalElevation = 6.dp) {
+                    Column(Modifier.width(420.dp).padding(22.dp)) {
+                        Text("스레드 시작", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(12.dp))
+                        OutlinedTextField(threadName, { threadName = it }, label = { Text("스레드 이름") }, modifier = Modifier.fillMaxWidth())
+                        Spacer(Modifier.height(16.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = { isCreateThreadOpen = false }) { Text("취소") }
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        runCatching { threadRepository.createThread(message.channelId, threadName.trim(), message.id) }
+                                            .onSuccess {
+                                                isCreateThreadOpen = false
+                                                component.onChannelClick(message.channelId)
+                                            }
+                                            .onFailure { actionError = it.userMessage() }
+                                    }
+                                },
+                                enabled = threadName.isNotBlank(),
+                            ) { Text("만들기") }
+                        }
+                    }
+                }
             }
         }
     }
@@ -2603,11 +3119,12 @@ private fun SettingsDialog(
     onTimeFormatChange: (TimeFormat) -> Unit,
     onDateFormatChange: (DateFormat) -> Unit,
     onMarketingEmailChange: (Boolean) -> Unit,
+    onReload: () -> Unit,
 ) {
     var selectedCategory by remember { mutableStateOf(SettingsCategory.Appearance) }
 
     CoworkDialog(onDismissRequest = onDismiss) {
-        Row(modifier = Modifier.width(620.dp).height(440.dp)) {
+        Row(modifier = Modifier.width(700.dp).height(560.dp)) {
             // 왼쪽 카테고리 네비게이션
             Column(
                 modifier = Modifier
@@ -2701,6 +3218,7 @@ private fun SettingsDialog(
                     SettingsCategory.Account -> AccountSettingsPanel(
                         state = state,
                         onMarketingEmailChange = onMarketingEmailChange,
+                        onReload = onReload,
                     )
                 }
             }
@@ -2761,8 +3279,82 @@ private fun AppearanceSettingsPanel(
 private fun AccountSettingsPanel(
     state: MainStore.State,
     onMarketingEmailChange: (Boolean) -> Unit,
+    onReload: () -> Unit,
 ) {
-    Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+    val userRepository = koinInject<UserRepository>()
+    val scope = rememberCoroutineScope()
+    var name by remember(state.accountId, state.accountName) { mutableStateOf(state.accountName.orEmpty()) }
+    var nickname by remember(state.accountId, state.accountNickname) { mutableStateOf(state.accountNickname.orEmpty()) }
+    var description by remember(state.accountId, state.accountDescription) { mutableStateOf(state.accountDescription.orEmpty()) }
+    var github by remember(state.accountId, state.accountGithub) { mutableStateOf(state.accountGithub.orEmpty()) }
+    var statusMessage by remember(state.accountId, state.accountStatusMessage) { mutableStateOf(state.accountStatusMessage.orEmpty()) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var saved by remember { mutableStateOf(false) }
+    Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp).verticalScroll(rememberScrollState())) {
+        SettingsGroupLabel("프로필")
+        OutlinedTextField(name, { name = it }, label = { Text("이름") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(nickname, { nickname = it }, label = { Text("닉네임") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(github, { github = it }, label = { Text("GitHub ID") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(description, { description = it }, label = { Text("소개") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+        Spacer(Modifier.height(10.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            TextButton(onClick = {
+                scope.launch {
+                    error = null
+                    runCatching { userRepository.deleteProfileImage() }
+                        .onSuccess { onReload() }
+                        .onFailure { error = it.userMessage() }
+                }
+            }, enabled = state.accountProfileImageUrl != null) { Text("프로필 사진 삭제") }
+            Spacer(Modifier.width(8.dp))
+            Button(onClick = {
+                scope.launch {
+                    error = null
+                    saved = false
+                    runCatching {
+                        userRepository.updateMyProfile(
+                            UserProfileUpdate(
+                                name = name.trim(),
+                                nickname = nickname.trim(),
+                                description = description.trim(),
+                                githubId = github.trim().ifBlank { null },
+                                clearGithubId = github.isBlank(),
+                            )
+                        )
+                    }.onSuccess { saved = true; onReload() }
+                        .onFailure { error = it.userMessage() }
+                }
+            }, enabled = name.isNotBlank()) { Text("프로필 저장") }
+        }
+        Spacer(Modifier.height(18.dp))
+        SettingsGroupLabel("상태 메시지")
+        OutlinedTextField(statusMessage, { statusMessage = it }, label = { Text("커스텀 상태") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            TextButton(onClick = {
+                scope.launch {
+                    runCatching { userRepository.updateMyStatus(UserStatusUpdate("ONLINE", message = null)) }
+                        .onSuccess { statusMessage = ""; onReload() }
+                        .onFailure { error = it.userMessage() }
+                }
+            }) { Text("상태 지우기") }
+            Button(onClick = {
+                scope.launch {
+                    val status = if (state.accountStatus == UserStatus.DoNotDisturb) "DO_NOT_DISTURB" else "ONLINE"
+                    runCatching { userRepository.updateMyStatus(UserStatusUpdate(status, statusMessage.trim().ifBlank { null })) }
+                        .onSuccess { saved = true; onReload() }
+                        .onFailure { error = it.userMessage() }
+                }
+            }) { Text("상태 저장") }
+        }
+        error?.let { Spacer(Modifier.height(8.dp)); Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        if (saved) { Spacer(Modifier.height(8.dp)); Text("저장되었습니다.", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall) }
+        Spacer(Modifier.height(22.dp))
+        HorizontalDivider()
+        Spacer(Modifier.height(16.dp))
         SettingsGroupLabel("이메일")
         SettingsRow(label = "마케팅 이메일 수신") {
             Switch(
@@ -3037,19 +3629,24 @@ private fun CreateChannelDialog(
             Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp)) {
                 DialogFieldLabel("채널 유형")
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(
-                        ChannelType.Text,
-                        ChannelType.Voice,
-                        ChannelType.Webhook,
-                        ChannelType.MeetingNote,
-                    ).forEach { type ->
-                        TypeButton(
-                            type = type,
-                            isSelected = type == state.createChannelType,
-                            onClick = { onTypeChange(type) },
-                        )
+                listOf(
+                    ChannelType.Text,
+                    ChannelType.Voice,
+                    ChannelType.Webhook,
+                    ChannelType.MeetingNote,
+                    ChannelType.AccountShare,
+                    ChannelType.FileShare,
+                ).chunked(3).forEach { rowTypes ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        rowTypes.forEach { type ->
+                            TypeButton(
+                                type = type,
+                                isSelected = type == state.createChannelType,
+                                onClick = { onTypeChange(type) },
+                            )
+                        }
                     }
+                    Spacer(Modifier.height(6.dp))
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))

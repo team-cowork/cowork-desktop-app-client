@@ -75,7 +75,10 @@ class DefaultMainComponent(
     override val state: StateFlow<MainStore.State> = store.stateFlow(scope)
 
     init {
-        lifecycle.doOnDestroy { scope.cancel() }
+        lifecycle.doOnDestroy {
+            chatSocket.disconnect()
+            scope.cancel()
+        }
         scope.launch {
             store.labels.collect { label ->
                 when (label) {

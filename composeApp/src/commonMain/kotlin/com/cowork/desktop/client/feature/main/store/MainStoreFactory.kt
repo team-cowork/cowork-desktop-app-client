@@ -6,6 +6,7 @@ import com.arkivanov.mvikotlin.core.store.StoreFactory
 import com.arkivanov.mvikotlin.extensions.coroutines.CoroutineExecutor
 import com.cowork.desktop.client.config.AppConfig
 import com.cowork.desktop.client.data.remote.ChatSocket
+import com.cowork.desktop.client.data.remote.ChatSocketEvent
 import com.cowork.desktop.client.data.repository.AuthRepository
 import com.cowork.desktop.client.data.repository.ChannelRepository
 import com.cowork.desktop.client.data.repository.ChatRepository
@@ -41,8 +42,27 @@ import com.cowork.desktop.client.feature.main.store.MainStore.State
 import com.cowork.desktop.client.util.parseJwtClaims
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.put
+
+private const val MESSAGE_FETCH_PAGE_SIZE = 100
+private const val ROOT_MESSAGE_PAGE_SIZE = 50
+private const val MAX_ROOT_MESSAGE_PAGES = 5
+
+internal fun <T> List<T>.moveItem(fromIndex: Int, toIndex: Int): List<T> {
+    if (fromIndex !in indices || toIndex !in indices || fromIndex == toIndex) return this
+    return toMutableList().apply {
+        val item = removeAt(fromIndex)
+        add(toIndex, item)
+    }
+}
+
+internal fun State.reduceProjectSelection(projectId: Long): State = copy(
+    selectedChannelId = null,
+    selectedProjectId = projectId,
+    chatDraft = "",
+)
 
 class MainStoreFactory(
     private val storeFactory: StoreFactory,
@@ -72,6 +92,7 @@ class MainStoreFactory(
     }
 
     private inner class Executor : CoroutineExecutor<Intent, Action, State, Msg, Label>() {
+        private var typingStopJob: Job? = null
 
         override fun executeAction(action: Action) {
             when (action) {
@@ -81,7 +102,7 @@ class MainStoreFactory(
 
         override fun executeIntent(intent: Intent) {
             when (intent) {
-                Intent.Reload -> loadTeams()
+                Intent.Reload -> reloadWorkspace()
                 is Intent.SelectTeam -> selectTeam(intent.teamId)
                 is Intent.SelectChannel -> selectChannel(intent.channelId)
                 Intent.OpenCreateTeam -> dispatch(Msg.SetCreateTeamOpen(true))
@@ -124,7 +145,7 @@ class MainStoreFactory(
                 is Intent.DeleteWebhook -> deleteWebhook(intent.webhookId)
                 is Intent.ReorderChannels -> reorderChannels(intent.fromIndex, intent.toIndex)
                 is Intent.ReorderProjects -> reorderProjects(intent.fromIndex, intent.toIndex)
-                is Intent.SetChatDraft -> dispatch(Msg.SetChatDraft(intent.draft))
+                is Intent.SetChatDraft -> updateChatDraft(intent.draft)
                 Intent.SendChatMessage -> sendChatMessage()
                 Intent.OpenCreateMeetingNote -> dispatch(Msg.SetCreateNoteOpen(true))
                 Intent.CloseCreateMeetingNote -> dispatch(Msg.ResetCreateNoteForm)
@@ -161,10 +182,10 @@ class MainStoreFactory(
             scope.launch {
                 val tokens = authRepository.getStoredTokens()
                 if (tokens != null) {
-                    chatSocket.connect(
+                    chatSocket.connectWithEvents(
                         wsBaseUrl = AppConfig.COWORK_CHAT_WS_BASE_URL,
                         token = tokens.accessToken,
-                        onMessage = { msg -> scope.launch { dispatch(Msg.PrependMessage(msg)) } },
+                        onEvent = { event -> scope.launch { handleSocketEvent(event) } },
                     )
                     val claims = parseJwtClaims(tokens.accessToken)
                     dispatch(Msg.SetAccountInfo(claims.accountId, claims.email, claims.role))
@@ -206,11 +227,13 @@ class MainStoreFactory(
                             teams.any { it.id == currentSelectedTeamId } -> currentSelectedTeamId
                             else -> teams.firstOrNull()?.id
                         }
+                        if (selectedTeamId != currentSelectedTeamId && currentSelectedTeamId != null) {
+                            state().selectedChannelId?.let(chatSocket::leaveChannel)
+                            chatSocket.leaveTeam(currentSelectedTeamId)
+                        }
                         dispatch(Msg.SetTeams(teams, selectedTeamId))
                         if (selectedTeamId != null && selectedTeamId != currentSelectedTeamId) {
-                            loadChannels(selectedTeamId)
-                            loadProjects(selectedTeamId)
-                            loadMemberProfiles(selectedTeamId)
+                            selectTeam(selectedTeamId)
                         }
                     }
                     .onFailure {
@@ -221,6 +244,17 @@ class MainStoreFactory(
             }
         }
 
+        private fun reloadWorkspace() {
+            val current = state()
+            loadTeams()
+            current.selectedTeamId?.let { teamId ->
+                loadChannels(teamId, current.selectedChannelId)
+                loadProjects(teamId)
+                loadMemberProfiles(teamId)
+                loadUnreadCounts(teamId)
+            }
+        }
+
         private fun loadMemberProfiles(teamId: Long) {
             scope.launch {
                 val userIds = runCatching { teamRepository.getTeamMembers(teamId) }.getOrNull() ?: return@launch
@@ -228,6 +262,7 @@ class MainStoreFactory(
                     .map { userId -> async { userRepository.getUserProfile(userId) } }
                     .mapNotNull { it.await() }
                     .associateBy { it.id }
+                if (state().selectedTeamId != teamId) return@launch
                 dispatch(Msg.SetMemberProfiles(profiles))
             }
         }
@@ -242,36 +277,97 @@ class MainStoreFactory(
         }
 
         private fun selectTeam(teamId: Long) {
+            val previousTeamId = state().selectedTeamId
+            state().selectedChannelId?.let(chatSocket::leaveChannel)
+            if (previousTeamId != null && previousTeamId != teamId) chatSocket.leaveTeam(previousTeamId)
             dispatch(Msg.SelectTeam(teamId))
+            chatSocket.joinTeam(teamId)
             loadChannels(teamId)
             loadProjects(teamId)
             loadMemberProfiles(teamId)
+            loadUnreadCounts(teamId)
         }
 
-        private fun loadChannels(teamId: Long) {
+        private fun loadUnreadCounts(teamId: Long) {
+            scope.launch {
+                val result = runCatching { chatRepository.getTeamUnread(teamId) }
+                if (state().selectedTeamId != teamId) return@launch
+                result.onSuccess { counts -> counts.forEach { dispatch(Msg.SetUnreadCount(it.channelId, it.unreadCount)) } }
+            }
+        }
+
+        private fun handleSocketEvent(event: ChatSocketEvent) {
+            when (event) {
+                ChatSocketEvent.Connected -> {
+                    state().selectedTeamId?.let(chatSocket::joinTeam)
+                    state().selectedChannel
+                        ?.takeIf { it.type == ChannelType.Text }
+                        ?.id
+                        ?.let(chatSocket::joinChannel)
+                }
+                is ChatSocketEvent.MessageReceived -> dispatch(Msg.PrependMessage(event.message))
+                is ChatSocketEvent.MessageEdited -> dispatch(Msg.UpdateMessageContent(event.messageId, event.content))
+                is ChatSocketEvent.MessageDeleted -> dispatch(Msg.RemoveMessage(event.messageId))
+                is ChatSocketEvent.MessagePinned,
+                is ChatSocketEvent.MessageUnpinned,
+                is ChatSocketEvent.ReactionAdded,
+                is ChatSocketEvent.ReactionRemoved -> state().selectedChannelId?.let(::loadMessages)
+                is ChatSocketEvent.Typing -> {
+                    if (event.channelId == state().selectedChannelId && event.userId != state().accountId) {
+                        dispatch(Msg.SetTyping(event.userId, event.isTyping))
+                    }
+                }
+                is ChatSocketEvent.ChannelUnreadUpdated -> dispatch(Msg.SetUnreadCount(event.channelId, event.unreadCount))
+                is ChatSocketEvent.ChannelCreated,
+                is ChatSocketEvent.ChannelUpdated,
+                is ChatSocketEvent.ChannelDeleted -> state().selectedTeamId?.let { loadChannels(it, state().selectedChannelId) }
+                is ChatSocketEvent.ProjectCreated,
+                is ChatSocketEvent.ProjectUpdated,
+                is ChatSocketEvent.ProjectDeleted -> state().selectedTeamId?.let(::loadProjects)
+                is ChatSocketEvent.MemberJoined,
+                is ChatSocketEvent.MemberLeft,
+                is ChatSocketEvent.MemberRoleUpdated -> state().selectedTeamId?.let(::loadMemberProfiles)
+                is ChatSocketEvent.ConnectionError,
+                is ChatSocketEvent.Disconnected,
+                is ChatSocketEvent.ServerError -> Unit
+            }
+        }
+
+        private fun loadChannels(teamId: Long, preferredChannelId: Long? = null) {
             scope.launch {
                 dispatch(Msg.SetLoadingChannels(true))
-                runCatching { channelRepository.getTeamChannels(teamId) }
-                    .onSuccess { channels ->
-                        val selectedChannelId = channels.firstOrNull()?.id
-                        dispatch(Msg.SetChannels(channels, selectedChannelId))
-                        if (selectedChannelId != null) {
-                            loadMessages(selectedChannelId)
-                            loadThreads(selectedChannelId)
-                        }
-                    }
+                val result = runCatching { channelRepository.getTeamChannels(teamId) }
+                if (state().selectedTeamId != teamId) return@launch
+                result
+                    .onSuccess { channels -> replaceChannels(channels, preferredChannelId) }
                     .onFailure {
                         if (it.handleIfSessionExpired()) return@launch
-                        dispatch(Msg.SetChannels(emptyList()))
+                        replaceChannels(emptyList())
                     }
                 dispatch(Msg.SetLoadingChannels(false))
             }
         }
 
+        private fun replaceChannels(channels: List<Channel>, preferredChannelId: Long? = null) {
+            if (preferredChannelId == null && state().selectedProjectId != null) {
+                dispatch(Msg.SetChannels(channels))
+                return
+            }
+            val channelToSelect = preferredChannelId
+                ?.let { preferredId -> channels.firstOrNull { it.id == preferredId } }
+                ?: channels.firstOrNull()
+
+            state().selectedChannelId?.let(chatSocket::leaveChannel)
+            dispatch(Msg.SetChannels(channels))
+            channelToSelect?.let { selectChannel(it.id) }
+        }
+
         private fun loadProjects(teamId: Long) {
             scope.launch {
                 dispatch(Msg.SetLoadingProjects(true))
-                runCatching { projectRepository.getTeamProjects(teamId) }
+                val result = runCatching { projectRepository.getTeamProjects(teamId) }
+                if (state().selectedTeamId != teamId) return@launch
+                result
                     .onSuccess { projects -> dispatch(Msg.SetProjects(projects)) }
                     .onFailure {
                         if (it.handleIfSessionExpired()) return@launch
@@ -283,9 +379,11 @@ class MainStoreFactory(
 
         private fun selectChannel(channelId: Long) {
             val prevChannelId = state().selectedChannelId
-            if (prevChannelId == channelId) return
-            if (prevChannelId != null) chatSocket.leaveChannel(prevChannelId)
+            if (prevChannelId != null && prevChannelId != channelId) {
+                chatSocket.leaveChannel(prevChannelId)
+            }
             val channel = state().channels.firstOrNull { it.id == channelId }
+            prevChannelId?.let(chatSocket::stopTyping)
             dispatch(Msg.SelectChannel(channelId))
             when (channel?.type) {
                 ChannelType.Webhook -> loadWebhooks(channelId)
@@ -299,13 +397,32 @@ class MainStoreFactory(
         }
 
         private fun selectProject(projectId: Long) {
+            state().selectedChannelId?.let(chatSocket::leaveChannel)
             dispatch(Msg.SelectProject(projectId))
         }
 
         private fun loadMessages(channelId: Long) {
             scope.launch {
                 dispatch(Msg.SetLoadingMessages(true))
-                runCatching { chatRepository.getMessages(channelId) }
+                val result = runCatching {
+                    val roots = mutableListOf<ChatMessage>()
+                    var before: String? = null
+                    var pageCount = 0
+                    while (roots.size < ROOT_MESSAGE_PAGE_SIZE && pageCount < MAX_ROOT_MESSAGE_PAGES) {
+                        val page = chatRepository.getMessages(
+                            channelId = channelId,
+                            before = before,
+                            limit = MESSAGE_FETCH_PAGE_SIZE,
+                        )
+                        roots += page.filter { it.parentMessageId == null }
+                        if (page.size < MESSAGE_FETCH_PAGE_SIZE) break
+                        before = page.lastOrNull()?.id ?: break
+                        pageCount++
+                    }
+                    roots.take(ROOT_MESSAGE_PAGE_SIZE)
+                }
+                if (state().selectedChannelId != channelId) return@launch
+                result
                     .onSuccess { messages -> dispatch(Msg.SetMessages(messages)) }
                     .onFailure {
                         if (it.handleIfSessionExpired()) return@launch
@@ -318,7 +435,9 @@ class MainStoreFactory(
         private fun loadThreads(channelId: Long) {
             scope.launch {
                 dispatch(Msg.SetLoadingThreads(true))
-                runCatching { threadRepository.getThreads(channelId) }
+                val result = runCatching { threadRepository.getThreads(channelId) }
+                if (state().selectedChannelId != channelId) return@launch
+                result
                     .onSuccess { threads -> dispatch(Msg.SetThreads(threads)) }
                     .onFailure {
                         if (it.handleIfSessionExpired()) return@launch
@@ -373,8 +492,7 @@ class MainStoreFactory(
                     )
                 }.onSuccess { channel ->
                     dispatch(Msg.ResetCreateChannelForm)
-                    loadChannels(channel.teamId)
-                    selectChannel(channel.id)
+                    loadChannels(teamId, preferredChannelId = channel.id)
                 }.onFailure {
                     if (it.handleIfSessionExpired()) return@launch
                     dispatch(Msg.SetError("채널을 생성하지 못했습니다."))
@@ -396,7 +514,7 @@ class MainStoreFactory(
                 }.onSuccess { project ->
                     dispatch(Msg.ResetCreateProjectForm)
                     loadProjects(project.teamId)
-                    dispatch(Msg.SelectProject(project.id))
+                    selectProject(project.id)
                 }.onFailure {
                     if (it.handleIfSessionExpired()) return@launch
                     dispatch(Msg.SetError("프로젝트를 생성하지 못했습니다."))
@@ -425,6 +543,7 @@ class MainStoreFactory(
 
         private fun signOut() {
             scope.launch {
+                chatSocket.disconnect()
                 authRepository.signOut()
                 publish(Label.SignedOut)
             }
@@ -494,7 +613,9 @@ class MainStoreFactory(
         private fun loadWebhooks(channelId: Long) {
             scope.launch {
                 dispatch(Msg.SetLoadingWebhooks(true))
-                runCatching { webhookRepository.getWebhooks(channelId) }
+                val result = runCatching { webhookRepository.getWebhooks(channelId) }
+                if (state().selectedChannelId != channelId) return@launch
+                result
                     .onSuccess { dispatch(Msg.SetWebhooks(it)) }
                     .onFailure {
                         if (it.handleIfSessionExpired()) return@launch
@@ -539,9 +660,11 @@ class MainStoreFactory(
         private fun loadMeetingNotes(channelId: Long) {
             scope.launch {
                 dispatch(Msg.SetLoadingMeetingNotes(true))
-                runCatching {
-                    val notes = meetingNoteRepository.getNotes(channelId)
-                    val templates = meetingNoteRepository.getTemplates(channelId)
+                val result = runCatching {
+                    meetingNoteRepository.getNotes(channelId) to meetingNoteRepository.getTemplates(channelId)
+                }
+                if (state().selectedChannelId != channelId) return@launch
+                result.onSuccess { (notes, templates) ->
                     dispatch(Msg.SetMeetingNotes(notes))
                     dispatch(Msg.SetMeetingNoteTemplates(templates))
                 }.onFailure {
@@ -601,14 +724,30 @@ class MainStoreFactory(
                 createdAt = null,
             )
             dispatch(Msg.SetChatDraft(""))
+            chatSocket.stopTyping(channelId)
             dispatch(Msg.PrependMessage(optimistic))
             scope.launch {
-                runCatching { chatRepository.sendMessage(channelId, teamId, content) }
+                runCatching { chatRepository.sendMessage(channelId, teamId, content, clientMessageId = tempId) }
                     .onFailure {
                         if (it.handleIfSessionExpired()) return@launch
                         dispatch(Msg.SetChatDraft(content))
                         dispatch(Msg.RemoveOptimisticMessage(tempId))
                     }
+            }
+        }
+
+        private fun updateChatDraft(draft: String) {
+            dispatch(Msg.SetChatDraft(draft))
+            val channelId = state().selectedChannelId ?: return
+            typingStopJob?.cancel()
+            if (draft.isBlank()) {
+                chatSocket.stopTyping(channelId)
+                return
+            }
+            chatSocket.startTyping(channelId)
+            typingStopJob = scope.launch {
+                delay(2_500)
+                chatSocket.stopTyping(channelId)
             }
         }
 
@@ -640,36 +779,43 @@ class MainStoreFactory(
         }
 
         private fun reorderChannels(fromIndex: Int, toIndex: Int) {
+            val currentState = state()
+            val teamId = currentState.selectedTeamId ?: return
+            if (fromIndex !in currentState.channels.indices ||
+                toIndex !in currentState.channels.indices ||
+                fromIndex == toIndex
+            ) return
+            val orderedIds = currentState.channels.moveItem(fromIndex, toIndex).map { it.id }
             dispatch(Msg.ReorderChannels(fromIndex, toIndex))
-            val teamId = state().selectedTeamId ?: return
-            val orderedIds = run {
-                val list = state().channels.toMutableList()
-                val item = list.removeAt(fromIndex)
-                list.add(toIndex, item)
-                list.map { it.id }
-            }
             scope.launch {
                 runCatching { channelRepository.reorderChannels(teamId, orderedIds) }
-                    .onSuccess { dispatch(Msg.SetChannels(it, state().selectedChannelId)) }
+                    .onSuccess {
+                        if (state().selectedTeamId == teamId) {
+                            dispatch(Msg.SetChannels(it, state().selectedChannelId))
+                        }
+                    }
                     .onFailure { if (it.handleIfSessionExpired()) return@launch }
             }
         }
 
         private fun reorderProjects(fromIndex: Int, toIndex: Int) {
+            val currentState = state()
+            val teamId = currentState.selectedTeamId ?: return
+            if (fromIndex !in currentState.projects.indices ||
+                toIndex !in currentState.projects.indices ||
+                fromIndex == toIndex
+            ) return
+            val orderedIds = currentState.projects.moveItem(fromIndex, toIndex).map { it.id }
             dispatch(Msg.ReorderProjects(fromIndex, toIndex))
-            val teamId = state().selectedTeamId ?: return
-            val orderedIds = run {
-                val list = state().projects.toMutableList()
-                val item = list.removeAt(fromIndex)
-                list.add(toIndex, item)
-                list.map { it.id }
-            }
             scope.launch {
                 runCatching { projectRepository.reorderProjects(teamId, orderedIds) }
-                    .onSuccess { dispatch(Msg.SetProjects(it)) }
+                    .onSuccess {
+                        if (state().selectedTeamId == teamId) dispatch(Msg.SetProjects(it))
+                    }
                     .onFailure { if (it.handleIfSessionExpired()) return@launch }
             }
         }
+
     }
 
     private sealed interface Msg {
@@ -751,6 +897,8 @@ class MainStoreFactory(
         data class SetEditingContent(val content: String) : Msg
         data class UpdateMessageContent(val messageId: String, val content: String) : Msg
         data class RemoveMessage(val messageId: String) : Msg
+        data class SetTyping(val userId: Long, val isTyping: Boolean) : Msg
+        data class SetUnreadCount(val channelId: Long, val count: Int) : Msg
     }
 
     private object Reducer : com.arkivanov.mvikotlin.core.store.Reducer<State, Msg> {
@@ -768,19 +916,25 @@ class MainStoreFactory(
                 threads = emptyList(),
                 projects = emptyList(),
                 selectedProjectId = null,
+                unreadCounts = emptyMap(),
+                typingUserIds = emptySet(),
+                chatDraft = "",
                 error = null,
             )
             is Msg.SelectChannel -> copy(
                 selectedChannelId = msg.channelId,
                 selectedProjectId = null,
+                unreadCounts = unreadCounts + (msg.channelId to 0),
+                typingUserIds = emptySet(),
                 messages = emptyList(),
                 threads = emptyList(),
                 webhooks = emptyList(),
                 meetingNotes = emptyList(),
                 meetingNoteTemplates = emptyList(),
                 selectedMeetingNoteId = null,
+                chatDraft = "",
             )
-            is Msg.SelectProject -> copy(selectedProjectId = msg.projectId)
+            is Msg.SelectProject -> reduceProjectSelection(msg.projectId)
             is Msg.SetChannels -> copy(
                 channels = msg.channels,
                 selectedChannelId = msg.selectedChannelId,
@@ -844,6 +998,8 @@ class MainStoreFactory(
                 accountStudentRole = msg.profile.studentRole,
                 accountDescription = msg.profile.description,
                 accountRoles = msg.profile.roles,
+                accountStatusMessage = msg.profile.statusMessage,
+                accountStatusExpiresAt = msg.profile.statusExpiresAt,
             )
             is Msg.SetAccountStatus -> copy(accountStatus = msg.status)
             is Msg.SetAccountMenuOpen -> copy(isAccountMenuOpen = msg.isOpen)
@@ -873,23 +1029,24 @@ class MainStoreFactory(
                 isAddingWebhook = false,
             )
             is Msg.ReorderChannels -> {
-                val list = channels.toMutableList()
-                val item = list.removeAt(msg.fromIndex)
-                list.add(msg.toIndex, item)
-                copy(channels = list)
+                copy(channels = channels.moveItem(msg.fromIndex, msg.toIndex))
             }
             is Msg.ReorderProjects -> {
-                val list = projects.toMutableList()
-                val item = list.removeAt(msg.fromIndex)
-                list.add(msg.toIndex, item)
-                copy(projects = list)
+                copy(projects = projects.moveItem(msg.fromIndex, msg.toIndex))
             }
             is Msg.PrependMessage -> {
-                if (msg.message.channelId != selectedChannelId) this
+                if (msg.message.channelId != selectedChannelId || msg.message.parentMessageId != null) this
                 else {
                     // 소켓으로 실제 메시지가 오면 같은 authorId+content의 옵티미스틱 메시지 제거
                     val withoutOptimistic = if (!msg.message.id.startsWith("optimistic-")) {
-                        messages.filterNot { it.id.startsWith("optimistic-") && it.authorId == msg.message.authorId && it.content == msg.message.content }
+                        messages.filterNot { optimistic ->
+                            optimistic.id.startsWith("optimistic-") &&
+                                if (msg.message.clientMessageId != null) {
+                                    optimistic.clientMessageId == msg.message.clientMessageId
+                                } else {
+                                    optimistic.authorId == msg.message.authorId && optimistic.content == msg.message.content
+                                }
+                        }
                     } else messages
                     copy(messages = listOf(msg.message) + withoutOptimistic)
                 }
@@ -922,6 +1079,10 @@ class MainStoreFactory(
                 messages = messages.map { if (it.id == msg.messageId) it.copy(content = msg.content) else it }
             )
             is Msg.RemoveMessage -> copy(messages = messages.filterNot { it.id == msg.messageId })
+            is Msg.SetTyping -> copy(
+                typingUserIds = if (msg.isTyping) typingUserIds + msg.userId else typingUserIds - msg.userId,
+            )
+            is Msg.SetUnreadCount -> copy(unreadCounts = unreadCounts + (msg.channelId to msg.count))
         }
     }
 }

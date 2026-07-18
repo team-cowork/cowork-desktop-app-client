@@ -150,6 +150,8 @@ interface MainStore : Store<Intent, State, Label> {
         val accountDescription: String? = null,
         val accountRoles: List<String> = emptyList(),
         val accountStatus: UserStatus = UserStatus.Online,
+        val accountStatusMessage: String? = null,
+        val accountStatusExpiresAt: String? = null,
         val accountTheme: AppTheme = AppTheme.Dark,
         val accountLanguage: AppLanguage = AppLanguage.Korean,
         val accountTimeFormat: TimeFormat = TimeFormat.H24,
@@ -160,6 +162,8 @@ interface MainStore : Store<Intent, State, Label> {
         val isUpdatingStatus: Boolean = false,
         val isUploadingProfileImage: Boolean = false,
         val isUpdatingSettings: Boolean = false,
+        val typingUserIds: Set<Long> = emptySet(),
+        val unreadCounts: Map<Long, Int> = emptyMap(),
     ) {
         val isSystemAdmin: Boolean
             get() = accountSystemRole == "ROLE_ADMIN"
@@ -192,13 +196,13 @@ interface MainStore : Store<Intent, State, Label> {
             get() = meetingNotes.firstOrNull { it.id == selectedMeetingNoteId }
 
         val activeTemplate: MeetingNoteTemplate?
-            get() = meetingNoteTemplates.firstOrNull { it.isActive } ?: meetingNoteTemplates.firstOrNull()
+            get() = meetingNoteTemplates.firstOrNull { it.isActive }
 
         val canSubmitNote: Boolean
             get() = createNoteTitle.isNotBlank() &&
                     !isCreatingNote &&
-                    (activeTemplate?.sections?.filter { it.isRequired }
-                        ?.all { createNoteSectionContents[it.title]?.isNotBlank() == true } ?: true)
+                    activeTemplate?.sections?.filter { it.isRequired }
+                        ?.all { createNoteSectionContents[it.title]?.isNotBlank() == true } == true
     }
 
     sealed interface Label {
