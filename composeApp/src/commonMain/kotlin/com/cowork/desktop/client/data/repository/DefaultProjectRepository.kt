@@ -1,6 +1,11 @@
 package com.cowork.desktop.client.data.repository
 
 import com.cowork.desktop.client.data.remote.ProjectApi
+import com.cowork.desktop.client.domain.model.GithubApproveResult
+import com.cowork.desktop.client.domain.model.GithubMergeResult
+import com.cowork.desktop.client.domain.model.GithubPullRequest
+import com.cowork.desktop.client.domain.model.GithubPullRequestBoard
+import com.cowork.desktop.client.domain.model.GithubPullRequestFile
 import com.cowork.desktop.client.domain.model.Project
 import com.cowork.desktop.client.domain.model.ProjectMember
 import com.cowork.desktop.client.domain.model.ProjectRole
@@ -27,8 +32,9 @@ class DefaultProjectRepository(
         name: String?,
         description: String?,
         status: String?,
+        clearDescription: Boolean,
     ): Project =
-        authorized { projectApi.updateProject(it, projectId, name, description, status) }
+        authorized { projectApi.updateProject(it, projectId, name, description, status, clearDescription) }
 
     override suspend fun deleteProject(projectId: Long) =
         authorized { projectApi.deleteProject(it, projectId) }
@@ -41,6 +47,30 @@ class DefaultProjectRepository(
 
     override suspend fun removeMember(projectId: Long, memberId: Long) =
         authorized { projectApi.removeMember(it, projectId, memberId) }
+
+    override suspend fun updateMemberRole(projectId: Long, memberId: Long, role: ProjectRole): ProjectMember =
+        authorized { projectApi.updateMemberRole(it, projectId, memberId, role) }
+
+    override suspend fun linkGithubRepository(projectId: Long, repositoryUrl: String): Project =
+        authorized { projectApi.linkGithubRepository(it, projectId, repositoryUrl) }
+
+    override suspend fun unlinkGithubRepository(projectId: Long): Project =
+        authorized { projectApi.unlinkGithubRepository(it, projectId) }
+
+    override suspend fun getGithubPullRequests(projectId: Long): GithubPullRequestBoard =
+        authorized { projectApi.getGithubPullRequests(it, projectId) }
+
+    override suspend fun getGithubPullRequest(projectId: Long, prNumber: Int): GithubPullRequest =
+        authorized { projectApi.getGithubPullRequest(it, projectId, prNumber) }
+
+    override suspend fun getGithubPullRequestFiles(projectId: Long, prNumber: Int): List<GithubPullRequestFile> =
+        authorized { projectApi.getGithubPullRequestFiles(it, projectId, prNumber) }
+
+    override suspend fun mergeGithubPullRequest(projectId: Long, prNumber: Int): GithubMergeResult =
+        authorized { projectApi.mergeGithubPullRequest(it, projectId, prNumber) }
+
+    override suspend fun approveGithubPullRequest(projectId: Long, prNumber: Int): GithubApproveResult =
+        authorized { projectApi.approveGithubPullRequest(it, projectId, prNumber) }
 
     override suspend fun reorderProjects(teamId: Long, orderedProjectIds: List<Long>): List<Project> =
         authorized { projectApi.reorderProjects(it, teamId, orderedProjectIds) }

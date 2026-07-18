@@ -13,6 +13,7 @@ import com.cowork.desktop.client.data.remote.ProjectApi
 import com.cowork.desktop.client.data.remote.TeamApi
 import com.cowork.desktop.client.data.remote.ThreadApi
 import com.cowork.desktop.client.data.remote.UserApi
+import com.cowork.desktop.client.data.remote.VoiceApi
 import com.cowork.desktop.client.data.remote.MeetingNoteApi
 import com.cowork.desktop.client.data.remote.WebhookApi
 import com.cowork.desktop.client.data.repository.AuthRepository
@@ -26,6 +27,7 @@ import com.cowork.desktop.client.data.repository.DefaultProjectRepository
 import com.cowork.desktop.client.data.repository.DefaultTeamRepository
 import com.cowork.desktop.client.data.repository.DefaultThreadRepository
 import com.cowork.desktop.client.data.repository.DefaultUserRepository
+import com.cowork.desktop.client.data.repository.DefaultVoiceRepository
 import com.cowork.desktop.client.data.repository.PreferenceRepository
 import com.cowork.desktop.client.data.repository.ProjectRepository
 import com.cowork.desktop.client.data.repository.TeamRepository
@@ -34,6 +36,7 @@ import com.cowork.desktop.client.data.repository.DefaultWebhookRepository
 import com.cowork.desktop.client.data.repository.MeetingNoteRepository
 import com.cowork.desktop.client.data.repository.ThreadRepository
 import com.cowork.desktop.client.data.repository.UserRepository
+import com.cowork.desktop.client.data.repository.VoiceRepository
 import com.cowork.desktop.client.data.repository.WebhookRepository
 import org.koin.dsl.module
 
@@ -52,6 +55,7 @@ val commonModule = module {
     single { ThreadApi(client = get(), baseUrl = AppConfig.COWORK_API_BASE_URL) }
     single { WebhookApi(client = get(), baseUrl = AppConfig.COWORK_API_BASE_URL) }
     single { MeetingNoteApi(client = get(), baseUrl = AppConfig.COWORK_API_BASE_URL) }
+    single { VoiceApi(client = get(), baseUrl = AppConfig.COWORK_API_BASE_URL) }
     single<AuthRepository> { DefaultAuthRepository(tokenStorage = get(), authApi = get()) }
     single<TeamRepository> { DefaultTeamRepository(authRepository = get(), teamApi = get()) }
     single<ChannelRepository> { DefaultChannelRepository(authRepository = get(), channelApi = get()) }
@@ -62,4 +66,5 @@ val commonModule = module {
     single<ThreadRepository> { DefaultThreadRepository(authRepository = get(), threadApi = get()) }
     single<WebhookRepository> { DefaultWebhookRepository(authRepository = get(), webhookApi = get()) }
     single<MeetingNoteRepository> { DefaultMeetingNoteRepository(authRepository = get(), meetingNoteApi = get()) }
+    single<VoiceRepository> { DefaultVoiceRepository(authRepository = get(), voiceApi = get()) }
 }

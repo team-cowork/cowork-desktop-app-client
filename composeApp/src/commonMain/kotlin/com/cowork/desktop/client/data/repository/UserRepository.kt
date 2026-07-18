@@ -2,6 +2,11 @@ package com.cowork.desktop.client.data.repository
 
 import com.cowork.desktop.client.data.remote.UserApi
 import com.cowork.desktop.client.domain.model.UserProfile
+import com.cowork.desktop.client.domain.model.UserProfileUpdate
+import com.cowork.desktop.client.domain.model.UserSearchCriteria
+import com.cowork.desktop.client.domain.model.UserSearchPage
+import com.cowork.desktop.client.domain.model.UserStatusUpdate
+import com.cowork.desktop.client.domain.model.UserUpsert
 import io.ktor.client.plugins.ResponseException
 import io.ktor.client.statement.bodyAsText
 import kotlinx.serialization.SerialName
@@ -11,6 +16,11 @@ import kotlinx.serialization.json.Json
 interface UserRepository {
     suspend fun getMyProfile(): UserProfile?
     suspend fun getUserProfile(userId: Long): UserProfile?
+    suspend fun updateMyProfile(update: UserProfileUpdate): UserProfile?
+    suspend fun updateMyStatus(update: UserStatusUpdate): UserProfile?
+    suspend fun deleteProfileImage()
+    suspend fun searchUsers(criteria: UserSearchCriteria = UserSearchCriteria()): UserSearchPage
+    suspend fun upsertUser(userId: Long, user: UserUpsert): UserProfile?
     suspend fun uploadProfileImage(bytes: ByteArray, contentType: String)
 }
 
@@ -24,46 +34,47 @@ class DefaultUserRepository(
     override suspend fun getUserProfile(userId: Long): UserProfile? =
         runCatching {
             authRepository.authorized { token ->
-                val response = userApi.getUserProfile(token, userId)
-                val id = response.id ?: return@authorized null
-                UserProfile(
-                    id = id,
-                    name = response.name ?: "",
-                    email = response.email ?: "",
-                    nickname = response.nickname,
-                    profileImageUrl = response.profileImageUrl,
-                    github = response.githubId,
-                    studentRole = response.studentRole,
-                    studentNumber = response.studentNumber,
-                    major = response.major,
-                    specialty = response.specialty,
-                    description = response.description ?: response.accountDescription,
-                    roles = response.roles,
-                )
+                userApi.getUserProfile(token, userId).toDomain()
             }
         }.getOrNull()
 
     override suspend fun getMyProfile(): UserProfile? =
         runCatching {
             authRepository.authorized { token ->
-                val response = userApi.getMyProfile(token)
-                val id = response.id ?: return@authorized null
-                UserProfile(
-                    id = id,
-                    name = response.name ?: "",
-                    email = response.email ?: "",
-                    nickname = response.nickname,
-                    profileImageUrl = response.profileImageUrl,
-                    github = response.githubId,
-                    studentRole = response.studentRole,
-                    studentNumber = response.studentNumber,
-                    major = response.major,
-                    specialty = response.specialty,
-                    description = response.description ?: response.accountDescription,
-                    roles = response.roles,
-                )
+                userApi.getMyProfile(token).toDomain()
             }
         }.getOrNull()
+
+    override suspend fun updateMyProfile(update: UserProfileUpdate): UserProfile? =
+        authRepository.authorized { token ->
+            userApi.updateMyProfile(token, update).toDomain()
+        }
+
+    override suspend fun updateMyStatus(update: UserStatusUpdate): UserProfile? =
+        authRepository.authorized { token ->
+            userApi.updateMyStatus(token, update).toDomain()
+        }
+
+    override suspend fun deleteProfileImage() {
+        authRepository.authorized(userApi::deleteProfileImage)
+    }
+
+    override suspend fun searchUsers(criteria: UserSearchCriteria): UserSearchPage =
+        authRepository.authorized { token ->
+            val response = userApi.searchUsers(token, criteria)
+            UserSearchPage(
+                items = response.items.mapNotNull(UserApi.MyProfileResponse::toDomain),
+                hasNext = response.hasNext,
+                page = response.page,
+                pageSize = response.pageSize,
+                totalCount = response.totalCount,
+            )
+        }
+
+    override suspend fun upsertUser(userId: Long, user: UserUpsert): UserProfile? =
+        authRepository.authorized { token ->
+            userApi.upsertUser(token, userId, user).toDomain()
+        }
 
     override suspend fun uploadProfileImage(bytes: ByteArray, contentType: String) {
         try {
@@ -100,4 +111,27 @@ class DefaultUserRepository(
     companion object {
         private val lenientJson = Json { ignoreUnknownKeys = true }
     }
+}
+
+private fun UserApi.MyProfileResponse.toDomain(): UserProfile? {
+    val userId = id ?: return null
+    return UserProfile(
+        id = userId,
+        name = name.orEmpty(),
+        email = email.orEmpty(),
+        nickname = nickname,
+        profileImageUrl = profileImageUrl,
+        github = githubId,
+        studentRole = studentRole,
+        studentNumber = studentNumber,
+        major = major,
+        specialty = specialty,
+        description = description ?: accountDescription,
+        roles = roles,
+        sex = sex,
+        status = status,
+        statusMessage = statusMessage,
+        statusExpiresAt = statusExpiresAt,
+        accountDescription = accountDescription,
+    )
 }

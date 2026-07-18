@@ -2,7 +2,6 @@ package com.cowork.desktop.client.data.remote
 
 import com.cowork.desktop.client.domain.model.Thread
 import io.ktor.client.HttpClient
-import io.ktor.client.call.body
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
@@ -26,7 +25,7 @@ class ThreadApi(
                 parameter("includeArchived", includeArchived)
                 parameter("size", PAGE_SIZE)
                 parameter("page", page)
-            }.body<ApiResponse<PageResponse<ThreadResponse>>>().data ?: break
+            }.bodyPayload<PageResponse<ThreadResponse>?>() ?: break
             result.addAll(pageData.content)
             if (page >= pageData.totalPages - 1) break
             page++
@@ -39,7 +38,7 @@ class ThreadApi(
             bearerAuth(accessToken)
             contentType(ContentType.Application.Json)
             setBody(CreateThreadRequest(name = name, parentMessageId = parentMessageId))
-        }.body<ApiResponse<ThreadResponse>>().data?.toDomain()
+        }.bodyPayload<ThreadResponse?>()?.toDomain()
             ?: error("스레드 생성 응답에 data가 없습니다")
 
     suspend fun updateThread(
@@ -53,7 +52,7 @@ class ThreadApi(
             bearerAuth(accessToken)
             contentType(ContentType.Application.Json)
             setBody(UpdateThreadRequest(name = name, isArchived = isArchived))
-        }.body<ApiResponse<ThreadResponse>>().data?.toDomain()
+        }.bodyPayload<ThreadResponse?>()?.toDomain()
             ?: error("스레드 수정 응답에 data가 없습니다")
 
     private companion object {

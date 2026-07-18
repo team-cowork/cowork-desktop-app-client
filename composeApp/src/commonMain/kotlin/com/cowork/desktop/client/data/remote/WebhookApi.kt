@@ -2,7 +2,6 @@ package com.cowork.desktop.client.data.remote
 
 import com.cowork.desktop.client.domain.model.Webhook
 import io.ktor.client.HttpClient
-import io.ktor.client.call.body
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -21,7 +20,7 @@ class WebhookApi(
     suspend fun getWebhooks(accessToken: String, channelId: Long): List<Webhook> =
         client.get("$baseUrl/channels/$channelId/webhooks") {
             bearerAuth(accessToken)
-        }.body<ApiResponse<List<WebhookResponse>>>().data.orEmpty().map(WebhookResponse::toDomain)
+        }.bodyPayload<List<WebhookResponse>?>().orEmpty().map(WebhookResponse::toDomain)
 
     suspend fun createWebhook(
         accessToken: String,
@@ -34,7 +33,7 @@ class WebhookApi(
             bearerAuth(accessToken)
             contentType(ContentType.Application.Json)
             setBody(CreateWebhookRequest(name = name, avatarUrl = avatarUrl, isSecure = isSecure))
-        }.body<ApiResponse<WebhookResponse>>().data?.toDomain()
+        }.bodyPayload<WebhookResponse?>()?.toDomain()
             ?: error("웹훅 생성 응답에 data가 없습니다")
 
     suspend fun updateWebhook(
@@ -49,7 +48,7 @@ class WebhookApi(
             bearerAuth(accessToken)
             contentType(ContentType.Application.Json)
             setBody(UpdateWebhookRequest(name = name, avatarUrl = avatarUrl, isSecure = isSecure))
-        }.body<ApiResponse<WebhookResponse>>().data?.toDomain()
+        }.bodyPayload<WebhookResponse?>()?.toDomain()
             ?: error("웹훅 수정 응답에 data가 없습니다")
 
     suspend fun deleteWebhook(accessToken: String, channelId: Long, webhookId: Long) {
