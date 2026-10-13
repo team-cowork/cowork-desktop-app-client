@@ -236,23 +236,10 @@ class JvmChatSocket : ChatSocket {
         val attachments = json.arrayOrEmpty("attachments").mapObjects { attachment ->
             ChatAttachment(
                 name = attachment.optString("name"),
-                url = attachment.optString("url"),
+                objectKey = attachment.stringOrNull("objectKey"),
                 size = attachment.optLong("size"),
                 mimeType = attachment.optString("mimeType"),
             )
-        }
-        val legacyUrl = json.stringOrNull("fileUrl")
-        val normalizedAttachments = attachments.ifEmpty {
-            legacyUrl?.let {
-                listOf(
-                    ChatAttachment(
-                        name = json.optString("fileName"),
-                        url = it,
-                        size = json.optLong("fileSize"),
-                        mimeType = "application/octet-stream",
-                    ),
-                )
-            }.orEmpty()
         }
         val reactions = json.arrayOrEmpty("reactions").mapObjects { reaction ->
             val userIds = reaction.arrayOrEmpty("userIds").mapLongs()
@@ -266,7 +253,7 @@ class JvmChatSocket : ChatSocket {
                 },
             )
         }
-        val firstAttachment = normalizedAttachments.firstOrNull()
+        val firstAttachment = attachments.firstOrNull()
 
         ChatMessage(
             id = json.stringOrNull("_id") ?: json.stringOrNull("id") ?: return null,
@@ -277,11 +264,11 @@ class JvmChatSocket : ChatSocket {
             content = json.optString("content"),
             parentMessageId = json.stringOrNull("parentMessageId"),
             type = json.optString("type").toMessageType(),
-            fileUrl = legacyUrl ?: firstAttachment?.url,
+            fileUrl = null,
             fileName = json.stringOrNull("fileName") ?: firstAttachment?.name,
             fileSize = json.longOrNull("fileSize") ?: firstAttachment?.size,
             createdAt = json.stringOrNull("createdAt"),
-            attachments = normalizedAttachments,
+            attachments = attachments,
             reactions = reactions,
             isEdited = json.optBoolean("isEdited"),
             isPinned = json.optBoolean("isPinned"),

@@ -2933,23 +2933,20 @@ private fun MessageRow(
                             color = MaterialTheme.colorScheme.onBackground,
                         )
                     }
-                    val attachments = buildList {
-                        addAll(message.attachments)
-                        if (message.fileUrl != null && message.fileName != null && none { it.url == message.fileUrl }) {
-                            add(com.cowork.desktop.client.domain.model.ChatAttachment(
-                                name = message.fileName,
-                                url = message.fileUrl,
-                                size = message.fileSize ?: 0,
-                                mimeType = "application/octet-stream",
-                            ))
-                        }
-                    }
+                    val attachments = message.attachments
                     if (attachments.isNotEmpty()) {
                         val uriHandler = LocalUriHandler.current
                         Spacer(Modifier.height(6.dp))
-                        attachments.forEach { attachment ->
+                        attachments.forEachIndexed { attachmentIndex, attachment ->
                             Surface(
-                                modifier = Modifier.fillMaxWidth().clickable { uriHandler.openUri(attachment.url) },
+                                modifier = Modifier.fillMaxWidth().clickable {
+                                    scope.launch {
+                                        runCatching {
+                                            chatRepository.getAttachmentDownloadUrl(message.channelId, message.id, attachmentIndex)
+                                        }.onSuccess { uriHandler.openUri(it) }
+                                            .onFailure { actionError = it.userMessage() }
+                                    }
+                                },
                                 color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .5f),
                                 shape = RoundedCornerShape(8.dp),
                             ) {

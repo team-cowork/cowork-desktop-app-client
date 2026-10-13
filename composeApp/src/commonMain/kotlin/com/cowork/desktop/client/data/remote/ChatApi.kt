@@ -78,10 +78,7 @@ class ChatApi(
                     type = if (attachments.isEmpty()) "TEXT" else "FILE",
                     attachments = attachments.map {
                         AttachmentRequest(
-                            name = it.name,
-                            url = it.url,
-                            size = it.size,
-                            mimeType = it.mimeType,
+                            objectKey = requireNotNull(it.objectKey) { "업로드 완료 확인이 필요합니다." },
                         )
                     },
                     parentMessageId = parentMessageId,
@@ -132,7 +129,12 @@ class ChatApi(
             bearerAuth(accessToken)
             contentType(ContentType.Application.Json)
             setBody(ConfirmFileUploadRequest(objectKey))
-        }.bodyPayload<ConfirmFileUploadResponse>().fileUrl
+        }.bodyPayload<ConfirmFileUploadResponse>().objectKey
+
+    suspend fun getAttachmentDownloadUrl(accessToken: String, channelId: Long, messageId: String, attachmentIndex: Int): String =
+        client.get("$baseUrl/channels/$channelId/messages/${messageId.encodeURLPathPart()}/attachments/$attachmentIndex/download-url") {
+            bearerAuth(accessToken)
+        }.bodyPayload<AttachmentDownloadResponse>().downloadUrl
 
     suspend fun getFiles(
         accessToken: String,
@@ -293,12 +295,7 @@ class ChatApi(
     )
 
     @Serializable
-    private data class AttachmentRequest(
-        val name: String,
-        val url: String,
-        val size: Long,
-        val mimeType: String,
-    )
+    private data class AttachmentRequest(val objectKey: String)
 
     @Serializable
     private data class FileUploadUrlRequest(
@@ -311,14 +308,12 @@ class ChatApi(
     private data class FileUploadResponse(
         val objectKey: String,
         val uploadUrl: String,
-        val fileUrl: String,
         val expiresInSeconds: Long,
         val headers: Map<String, String> = emptyMap(),
     ) {
         fun toDomain() = ChatFileUpload(
             objectKey = objectKey,
             uploadUrl = uploadUrl,
-            fileUrl = fileUrl,
             expiresInSeconds = expiresInSeconds,
             headers = headers,
         )
@@ -328,7 +323,10 @@ class ChatApi(
     private data class ConfirmFileUploadRequest(val objectKey: String)
 
     @Serializable
-    private data class ConfirmFileUploadResponse(val fileUrl: String)
+    private data class ConfirmFileUploadResponse(val objectKey: String)
+
+    @Serializable
+    private data class AttachmentDownloadResponse(val downloadUrl: String, val expiresInSeconds: Int, val expiresAt: String)
 
     @Serializable
     private data class FileListResponse(
@@ -347,22 +345,24 @@ class ChatApi(
         val messageId: String,
         val fileName: String,
         val fileSize: Long,
-        val fileUrl: String,
         val mimeType: String,
         val uploaderId: Long,
         val uploaderName: String,
         val uploadedAt: String,
+        val attachmentIndex: Int = 0,
+        val objectKey: String? = null,
     ) {
         fun toDomain() = ChatFileItem(
             fileId = fileId,
             messageId = messageId,
             fileName = fileName,
             fileSize = fileSize,
-            fileUrl = fileUrl,
             mimeType = mimeType,
             uploaderId = uploaderId,
             uploaderName = uploaderName,
             uploadedAt = uploadedAt,
+            attachmentIndex = attachmentIndex,
+            objectKey = objectKey,
         )
     }
 
@@ -491,18 +491,6 @@ class ChatApi(
     ) {
         fun toDomain(): ChatMessage {
             val domainAttachments = attachments.map(AttachmentResponse::toDomain)
-                .ifEmpty {
-                    fileUrl?.let {
-                        listOf(
-                            ChatAttachment(
-                                name = fileName.orEmpty(),
-                                url = it,
-                                size = fileSize ?: 0,
-                                mimeType = "application/octet-stream",
-                            ),
-                        )
-                    }.orEmpty()
-                }
             val firstAttachment = domainAttachments.firstOrNull()
             return ChatMessage(
                 id = id ?: mongoId.orEmpty(),
@@ -513,7 +501,7 @@ class ChatApi(
                 content = content,
                 parentMessageId = parentMessageId,
                 type = type.toMessageType(),
-                fileUrl = fileUrl ?: firstAttachment?.url,
+                fileUrl = null,
                 fileName = fileName ?: firstAttachment?.name,
                 fileSize = fileSize ?: firstAttachment?.size,
                 createdAt = createdAt,
@@ -532,11 +520,11 @@ class ChatApi(
     @Serializable
     private data class AttachmentResponse(
         val name: String,
-        val url: String,
         val size: Long,
         val mimeType: String,
+        val objectKey: String? = null,
     ) {
-        fun toDomain() = ChatAttachment(name, url, size, mimeType)
+        fun toDomain() = ChatAttachment(name, size, mimeType, objectKey)
     }
 
     @Serializable
