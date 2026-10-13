@@ -323,22 +323,23 @@ internal fun ColumnScope.FileShareChannelContent(
                     val uploadResult = runCatching {
                         val upload = repository.createFileUploadUrl(channel.id, file.name, file.contentType, file.bytes.size.toLong())
                         repository.putFile(upload, file.bytes)
-                        val fileUrl = repository.confirmFileUpload(channel.id, upload.objectKey)
+                        val objectKey = repository.confirmFileUpload(channel.id, upload.objectKey)
                         repository.sendMessage(
                             channelId = channel.id,
                             teamId = channel.teamId,
                             projectId = channel.projectId,
                             content = file.name,
+                            clientMessageId = "file:$objectKey",
                             attachments = listOf(
                                 ChatAttachment(
                                     name = file.name,
-                                    url = fileUrl,
+                                    objectKey = objectKey,
                                     size = file.bytes.size.toLong(),
                                     mimeType = file.contentType,
                                 ),
                             ),
                         )
-                        fileUrl
+                        objectKey
                     }
                     isUploading = false
                     if (uploadResult.isFailure) {
@@ -347,13 +348,13 @@ internal fun ColumnScope.FileShareChannelContent(
                     }
 
                     // 메시지 저장은 Kafka 비동기이므로 목록에 나타날 때까지 제한적으로 재조회한다.
-                    val uploadedUrl = uploadResult.getOrThrow()
+                    val uploadedKey = uploadResult.getOrThrow()
                     for (waitMillis in listOf(500L, 1_000L, 2_000L, 4_000L)) {
                         delay(waitMillis)
                         val page = runCatching { repository.getFiles(channel.id) }.getOrNull() ?: continue
                         files = page.files
                         nextCursor = page.nextCursor
-                        if (page.files.any { it.fileUrl == uploadedUrl }) return@launch
+                        if (page.files.any { it.objectKey == uploadedKey }) return@launch
                     }
                     error = "파일 업로드는 완료됐지만 목록 반영이 지연되고 있습니다. 잠시 후 채널을 다시 열어 주세요."
                 }
@@ -368,8 +369,17 @@ internal fun ColumnScope.FileShareChannelContent(
         files.isEmpty() -> EmptySpecialChannel("공유된 파일이 없습니다.")
         else -> LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(files, key = { it.fileId }) { file ->
+                val openFile = {
+                    scope.launch {
+                        runCatching {
+                            repository.getAttachmentDownloadUrl(channel.id, file.messageId, file.attachmentIndex)
+                        }.onSuccess { uriHandler.openUri(it) }
+                            .onFailure { error = it.userMessage() }
+                    }
+                    Unit
+                }
                 Surface(
-                    modifier = Modifier.fillMaxWidth().clickable { uriHandler.openUri(file.fileUrl) },
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = openFile),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .5f),
                     shape = RoundedCornerShape(12.dp),
                 ) {
@@ -378,7 +388,7 @@ internal fun ColumnScope.FileShareChannelContent(
                             Text(file.fileName, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text("${formatFileSize(file.fileSize)} · ${file.uploaderName}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        TextButton(onClick = { uriHandler.openUri(file.fileUrl) }) { Text("열기") }
+                        TextButton(onClick = openFile) { Text("열기") }
                         if (file.uploaderId == accountId || isSystemAdmin) {
                             TextButton(onClick = {
                                 scope.launch {

@@ -39,6 +39,7 @@ interface ChatRepository {
 
     suspend fun putFile(upload: ChatFileUpload, bytes: ByteArray)
     suspend fun confirmFileUpload(channelId: Long, objectKey: String): String
+    suspend fun getAttachmentDownloadUrl(channelId: Long, messageId: String, attachmentIndex: Int): String
     suspend fun getFiles(channelId: Long, before: String? = null, limit: Int = 20): ChatFilePage
     suspend fun deleteFile(channelId: Long, fileId: String)
 

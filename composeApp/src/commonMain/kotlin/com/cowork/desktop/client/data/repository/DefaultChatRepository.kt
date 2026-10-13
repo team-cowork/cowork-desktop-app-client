@@ -69,6 +69,9 @@ class DefaultChatRepository(
     override suspend fun confirmFileUpload(channelId: Long, objectKey: String): String =
         authorized { accessToken -> chatApi.confirmFileUpload(accessToken, channelId, objectKey) }
 
+    override suspend fun getAttachmentDownloadUrl(channelId: Long, messageId: String, attachmentIndex: Int): String =
+        authorized { accessToken -> chatApi.getAttachmentDownloadUrl(accessToken, channelId, messageId, attachmentIndex) }
+
     override suspend fun getFiles(channelId: Long, before: String?, limit: Int): ChatFilePage =
         authorized { accessToken -> chatApi.getFiles(accessToken, channelId, before, limit) }
 
